@@ -1,0 +1,91 @@
+Installation
+============
+
+Execute on the terminal:
+./configure
+make
+make install
+
+Dependencies
+============
+
+- liblo (http://liblo.sourceforge.net/)
+
+Usage
+=====
+
+Put the controlfromosc element in the pipeline. Example:
+gst-launch -v -m fakesrc ! controlfromosc port=7770 ! fakesink silent=TRUE
+
+It will accept the following OSC messages:
+
+Set
+===
+/set ss* element_name property new_value OR
+/set/element_name/property * new_value
+(* can be i, f, s, h, d, c, T, F. Set it accordingly to the property type)
+
+Sets the 'property' on 'element_name' to 'new_value'.
+
+Get
+===
+
+/get ssss element_name property reply_address reply_port OR
+/get/element_name/propery ss reply_address reply_port
+
+Asks for the current value of 'property' on 'element_name'. Reply is sent to
+'reply_address:reply_port' as an OSC message formatted like: '/get/reply ss*
+element_name property current_value'.
+
+Subscribe
+=========
+
+/subscribe ssss element_name property reply_address reply_port OR
+/subscribe/element_name/property ss reply_address reply_port
+
+Subscribes to the 'property' of 'element_name'. It will receive a
+reply upon subscription confirming it '/subscribe/reply sss "subscribed" 
+element_name property'.
+
+After that, every change in the property will send a message '/subscre/reply ss*
+element_name property current_value' to every computer subscribed.
+
+Unsubscribe
+===========
+
+/unsubscribe ssss element_name property reply_address reply_port
+/unsubscribe/element_name/property ss reply_address reply_port
+
+Unsubscribes a computer to the 'property' of 'element_name'. It will receive a
+reply confirming it won't receive updates anymore '/unsubscribe/reply sss
+"unsubscribed" element_name property'.
+
+Control
+=======
+
+/control ss*d element_name property new_value time_to_set_in_seconds
+/control/element_name/property *d new_value time_to_set_in_seconds
+
+Sets the 'property' on 'element_name' to 'new_value' in
+'time_to_set_in_seconds'.
+
+Locate
+======
+
+/locate d seek_time_in_seconds
+
+Performs a seek.
+
+Pause
+=====
+
+/pause
+
+Pauses the pipeline.
+
+Play
+====
+
+/play
+
+Plays the pipeline.

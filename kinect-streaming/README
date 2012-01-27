@@ -1,0 +1,15 @@
+oneiric (kinect broken, install from sources) 
+http://openkinect.org/wiki/Main_Page
+
+
+sudo apt-get install python-gstreamer python-freenect python-numpy python-opencv 
+
+
+kinect example at:
+/usr/share/doc/python-freenect/examples
+
+installer libfreenect:
+sudo apt-get install freeglut3-dev cmake libxmu-dev libxi-dev
+git clone  https://github.com/OpenKinect/libfreenect.git
+
+installer aussi le wrapper python
