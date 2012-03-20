@@ -1,0 +1,14 @@
+*.la
+*.lo
+*~
+Makefile
+autom4te.cache/
+config.h
+config.log
+config.status
+gstoscctrl-0.10.0.tar.gz
+libtool
+src/.deps/
+src/.libs/
+src/Makefile
+stamp-h1

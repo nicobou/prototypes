@@ -15,8 +15,8 @@
  * GNU Lesser General Public License for more details.
  */
 
-#ifndef __GST_CONTROLFROMOSC_H__
-#define __GST_CONTROLFROMOSC_H__
+#ifndef __GST_OSCCTRL_H__
+#define __GST_OSCCTRL_H__
 
 #include <gst/gst.h>
 #include <gst/controller/gstcontroller.h>
@@ -24,21 +24,21 @@
 
 G_BEGIN_DECLS
 /* #defines don't like whitespacey bits */
-#define GST_TYPE_CONTROLFROMOSC \
+#define GST_TYPE_OSCCTRL			\
   (gst_control_from_osc_get_type())
-#define GST_CONTROLFROMOSC(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_CONTROLFROMOSC,GstControlFromOsc))
-#define GST_CONTROLFROMOSC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_CONTROLFROMOSC,GstControlFromOscClass))
-#define GST_IS_CONTROLFROMOSC(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_CONTROLFROMOSC))
-#define GST_IS_CONTROLFROMOSC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_CONTROLFROMOSC))
+#define GST_OSCCTRL(obj)						\
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_OSCCTRL,GstOscctrl))
+#define GST_OSCCTRL_CLASS(klass)					\
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_OSCCTRL,GstOscctrlClass))
+#define GST_IS_OSCCTRL(obj)				\
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_OSCCTRL))
+#define GST_IS_OSCCTRL_CLASS(klass)			\
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_OSCCTRL))
 #define DEFAULT_OSC_PORT 7770
-typedef struct _GstControlFromOsc GstControlFromOsc;
-typedef struct _GstControlFromOscClass GstControlFromOscClass;
+typedef struct _GstOscctrl GstOscctrl;
+typedef struct _GstOscctrlClass GstOscctrlClass;
 
-struct _GstControlFromOsc
+struct _GstOscctrl
 {
   GstElement element;
 
@@ -50,11 +50,10 @@ struct _GstControlFromOsc
   lo_server_thread osc_server;
   gint osc_port;
 
-//  GHashTable * elementsbyname; //http://library.gnome.org/devel/glib/stable/glib-Hash-Tables.html
   GHashTable *subscribers;
 };
 
-struct _GstControlFromOscClass
+struct _GstOscctrlClass
 {
   GstElementClass parent_class;
 };
@@ -62,4 +61,4 @@ struct _GstControlFromOscClass
 GType gst_control_from_osc_get_type (void);
 
 G_END_DECLS
-#endif /* __GST_CONTROLFROMOSC_H__ */
+#endif /* __GST_OSCCTRL_H__ */

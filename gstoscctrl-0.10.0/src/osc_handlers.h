@@ -19,10 +19,10 @@
 #include <gst/gst.h>
 #include <gst/controller/gstcontroller.h>
 
-#include "gstcontrolfromosc.h"
+#include "gstoscctrl.h"
 #include "aux_functions.h"
 
-void register_osc_handlers (GstControlFromOsc * filter);
+void register_osc_handlers (GstOscctrl * filter);
 
 void osc_error (int num, const char *msg, const char *path);
 

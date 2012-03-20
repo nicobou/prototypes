@@ -16,15 +16,67 @@
  */
 
 /**
- * SECTION:element-controlfromosc
+ * SECTION:element-oscctrl
  *
- * controlfromosc allows manipulation of the GStreamer pipeline from OSC
- * messages.
+ * oscctrl allows control of elements properties of a pipeline from OSC messages.
+ *
+ * Set a new value of an element property
+ * |[
+ * /set ss* <element_name> <property> <new_value>
+ * /set/element_name/property * <new_value>
+ * ]|
+ * Get the value of an element property
+ * |[
+ * /get ssss <element_name> <property> <reply_address> <reply_port>
+ * /get/element_name/propery ss <reply_address> <reply_port>
+ * }|
+ *
+ * Being notified when an element has his property changed
+ * |[
+ * /subscribe ssss <element_name> <property> <reply_address> <reply_port>
+ * /unsubscribe ssss <element_name> <property> <reply_address> <reply_port>
+ * /subscribe/element_name/property ss <reply_address> <reply_port>
+ * /unsubscribe/element_name/property ss <reply_address> <reply_port>
+ * ]|
+ *
+ * Relative automation (starting when message is received)
+ * |[
+ * /control ss*d <element_name> <property> <new_value> <time_to_reach_value>
+ * /control/element_name/property *d <new_value> <time_to_reach_value>
+ * ]|
+ *
+ * Seeking the pipeline
+ * |[ 
+ * /locate d <absolute_time_in_seconds>
+ * ]|
+ * Pipeline states
+ * |[
+ * /pause
+ * /play
+ * ]|
+ *
+ *
+ *  gst-launch --gst-plugin-path=/usr/local/lib/gstreamer-0.10/ oscctrl videotestsrc ! timeoverlay ! xvimagesink audiotestsrc ! autoaudiosink
+ *
+ *
+ * you can use oscsend and osc dump in order to interact with the pipeline, 
+ * for instance:
+ *
+ * oscdump 8888
+ *
+ * oscsend localhost 7770  /subscribe ssss audiotestsrc0 freq localhost 8888
+ * oscsend localhost 7770  /subscribe ssss audiotestsrc0 freq localhost 8888
+ * oscsend localhost 7770 /set ssi videotestsrc0 pattern 10
+ * oscsend localhost 7770 /set/videotestsrc0/pattern i 0
+ * oscsend localhost 7770 /control ssid audiotestsrc0 freq 100 3
+ * oscsend localhost 7770 /set/oscctrl0/linear-interp s true
+ * oscsend localhost 7770 /control ssid audiotestsrc0 freq 440 1
+ * oscsend localhost 7770 /locate d 10.9
  *
  * <refsect2>
  * <title>Example launch line</title>
  * |[
- * gst-launch -v -m fakesrc ! controlfromosc port=7770 ! fakesink silent=TRUE
+ * gst-launch -v -m oscctrl port=7770 fakesrc ! fakesink silent=TRUE
  * ]|
  * </refsect2>
  */
@@ -35,7 +87,7 @@
 
 #include <gst/gst.h>
 
-#include "gstcontrolfromosc.h"
+#include "gstoscctrl.h"
 #include "osc_handlers.h"
 #include "aux_functions.h"
 
@@ -45,15 +97,14 @@ GST_DEBUG_CATEGORY_STATIC (gst_control_from_osc_debug);
 /* Filter signals and args */
 enum
 {
-  /* FILL ME */
   LAST_SIGNAL
 };
 
 enum
 {
   PROP_0,
-  PROP_OSC_PORT,                // Port to listen
-  PROP_INTERP_MODE              // Interpolation mode used on GstControlSource
+  PROP_OSC_PORT,   // Port to listen
+  PROP_INTERP_MODE // Interpolation mode used on GstControlSource
 };
 
 /* the capabilities of the inputs and outputs.
@@ -72,7 +123,7 @@ static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_STATIC_CAPS ("ANY")
     );
 
-GST_BOILERPLATE (GstControlFromOsc, gst_control_from_osc, GstElement,
+GST_BOILERPLATE (GstOscctrl, gst_control_from_osc, GstElement,
     GST_TYPE_ELEMENT);
 
 static void gst_control_from_osc_set_property (GObject * object, guint prop_id,
@@ -84,17 +135,16 @@ static gboolean gst_control_from_osc_set_caps (GstPad * pad, GstCaps * caps);
 static GstFlowReturn gst_control_from_osc_chain (GstPad * pad, GstBuffer * buf);
 
 /* GObject vmethod implementations */
-
 static void
 gst_control_from_osc_base_init (gpointer gclass)
 {
   GstElementClass *element_class = GST_ELEMENT_CLASS (gclass);
 
   gst_element_class_set_details_simple (element_class,
-      "ControlFromOsc",
+      "Open Sound Control (OSC) Controller",
       "OSC",
-      "Allows manipulation of the GStreamer pipeline from OSC messages.",
-      "Nicolas Bouillot <<nicolas@cim.mcgill.ca>>\n\
+      "Allows control of elements properties and pipeline with OSC messages.",
+      "Nicolas Bouillot <<http://www.nicolasbouillot.net>>\n\
        Marcio Tomiyoshi <<mmt@ime.usp.br>>");
 
   gst_element_class_add_pad_template (element_class,
@@ -103,9 +153,9 @@ gst_control_from_osc_base_init (gpointer gclass)
       gst_static_pad_template_get (&sink_factory));
 }
 
-/* initialize the controlfromosc's class */
+/* initialize the oscctrl's class */
 static void
-gst_control_from_osc_class_init (GstControlFromOscClass * klass)
+gst_control_from_osc_class_init (GstOscctrlClass * klass)
 {
   GObjectClass *gobject_class;
   GstElementClass *gstelement_class;
@@ -121,13 +171,13 @@ gst_control_from_osc_class_init (GstControlFromOscClass * klass)
           1024, G_MAXINT, DEFAULT_OSC_PORT, G_PARAM_READWRITE));
 
   g_object_class_install_property (gobject_class, PROP_INTERP_MODE,
-      g_param_spec_boolean ("interp-mode", "Interpolation Mode",
-          "Linear interpolation on /control on or off.", FALSE,
+      g_param_spec_boolean ("linear-interp", "Enabling of linear interpolation",
+          "Linear interpolation on/off.", TRUE,
            G_PARAM_READWRITE));
 }
 
 void
-create_osc_server (GstControlFromOsc * filter)
+create_osc_server (GstOscctrl * filter)
 {
   GST_INFO ("Creating OSC server on port %d", filter->osc_port);
 
@@ -152,8 +202,8 @@ create_osc_server (GstControlFromOsc * filter)
  * initialize instance structure
  */
 static void
-gst_control_from_osc_init (GstControlFromOsc * filter,
-    GstControlFromOscClass * gclass)
+gst_control_from_osc_init (GstOscctrl * filter,
+    GstOscctrlClass * gclass)
 {
   filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
   gst_pad_set_setcaps_function (filter->sinkpad,
@@ -182,9 +232,6 @@ gst_control_from_osc_init (GstControlFromOsc * filter,
   // Allows GValue transformations from strings to int, uint, float...
   register_gvalue_transforms ();
 
-  //using default "g_direct_hash()"
-/*    filter->elementsbyname= g_hash_table_new (g_str_hash,g_str_equal);*/
-
   create_osc_server (filter);
 }
 
@@ -192,7 +239,7 @@ static void
 gst_control_from_osc_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (object);
+  GstOscctrl *filter = GST_OSCCTRL (object);
 
   switch (prop_id) {
     case PROP_OSC_PORT:
@@ -217,7 +264,7 @@ static void
 gst_control_from_osc_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (object);
+  GstOscctrl *filter = GST_OSCCTRL (object);
 
   switch (prop_id) {
     case PROP_OSC_PORT:
@@ -232,16 +279,15 @@ gst_control_from_osc_get_property (GObject * object, guint prop_id,
   }
 }
 
-/* GstElement vmethod implementations */
 
 /* this function handles the link with other elements */
 static gboolean
 gst_control_from_osc_set_caps (GstPad * pad, GstCaps * caps)
 {
-  GstControlFromOsc *filter;
+  GstOscctrl *filter;
   GstPad *otherpad;
 
-  filter = GST_CONTROLFROMOSC (gst_pad_get_parent (pad));
+  filter = GST_OSCCTRL (gst_pad_get_parent (pad));
   otherpad = (pad == filter->srcpad) ? filter->sinkpad : filter->srcpad;
   gst_object_unref (filter);
 
@@ -254,9 +300,9 @@ gst_control_from_osc_set_caps (GstPad * pad, GstCaps * caps)
 static GstFlowReturn
 gst_control_from_osc_chain (GstPad * pad, GstBuffer * buf)
 {
-  GstControlFromOsc *filter;
+  GstOscctrl *filter;
 
-  filter = GST_CONTROLFROMOSC (GST_OBJECT_PARENT (pad));
+  filter = GST_OSCCTRL (GST_OBJECT_PARENT (pad));
 
   /* just push out the incoming buffer without touching it */
   return gst_pad_push (filter->srcpad, buf);
@@ -268,19 +314,19 @@ gst_control_from_osc_chain (GstPad * pad, GstBuffer * buf)
  * register the element factories and other features
  */
 static gboolean
-controlfromosc_init (GstPlugin * controlfromosc)
+oscctrl_init (GstPlugin * oscctrl)
 {
-  /* debug category for fltering log messages
+  /* debug category for filtering log messages
    *
-   * exchange the string 'Template controlfromosc' with your description
+   * exchange the string 'Template oscctrl' with your description
    */
-  GST_DEBUG_CATEGORY_INIT (gst_control_from_osc_debug, "controlfromosc",
-      0, "Template controlfromosc");
+  GST_DEBUG_CATEGORY_INIT (gst_control_from_osc_debug, "oscctrl",
+      0, "Template oscctrl");
   aux_functions_debug_init ();
   osc_handlers_debug_init ();
 
-  return gst_element_register (controlfromosc, "controlfromosc", GST_RANK_NONE,
-      GST_TYPE_CONTROLFROMOSC);
+  return gst_element_register (oscctrl, "oscctrl", GST_RANK_NONE,
+      GST_TYPE_OSCCTRL);
 }
 
 /* PACKAGE: this is usually set by autotools depending on some _INIT macro
@@ -289,12 +335,12 @@ controlfromosc_init (GstPlugin * controlfromosc)
  * compile this code. GST_PLUGIN_DEFINE needs PACKAGE to be defined.
  */
 #ifndef PACKAGE
-#define PACKAGE "myfirstcontrolfromosc"
+#define PACKAGE "oscctrl"
 #endif
 
-/* gstreamer looks for this structure to register controlfromoscs */
+/* gstreamer looks for this structure to register oscctrls */
 GST_PLUGIN_DEFINE (GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
-    "controlfromosc",
-    "Allows manipulation of the GStreamer pipeline from OSC messages.",
-    controlfromosc_init, VERSION, "LGPL", "GStreamer", "http://gstreamer.net/")
+    "oscctrl",
+    "Allows control of elements properties of a pipeline from OSC messages.",
+    oscctrl_init, VERSION, "LGPL", "GStreamer", "http://gstreamer.net/")

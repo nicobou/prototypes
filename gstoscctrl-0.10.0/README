@@ -1,91 +1,84 @@
+oscctrl is a GStreamer element that allows for controling a pipeline 
+with Open Sound Control (OSC) messages. More precisely, a process 
+can get, set, properties of one or several element(s) instance(s) 
+in the same pipeline. 
+
+oscctrl provides subscribe/unsubscribe to properties as well as some 
+basic pipeline control (seek, pause, play).  
+
 Installation
 ============
 
-Execute on the terminal:
-./configure
-make
-make install
+see the file named INSTALL
 
-Dependencies
-============
+In order to verify oscctrl is installed:
+$ gst-inspect --gst-plugin-path=/usr/local/lib/gstreamer-0.10/ oscctrl
 
-- liblo (http://liblo.sourceforge.net/)
-
-Usage
-=====
-
-Put the controlfromosc element in the pipeline. Example:
-gst-launch -v -m fakesrc ! controlfromosc port=7770 ! fakesink silent=TRUE
-
-It will accept the following OSC messages:
-
-Set
-===
-/set ss* element_name property new_value OR
-/set/element_name/property * new_value
-(* can be i, f, s, h, d, c, T, F. Set it accordingly to the property type)
-
-Sets the 'property' on 'element_name' to 'new_value'.
-
-Get
-===
-
-/get ssss element_name property reply_address reply_port OR
-/get/element_name/propery ss reply_address reply_port
-
-Asks for the current value of 'property' on 'element_name'. Reply is sent to
-'reply_address:reply_port' as an OSC message formatted like: '/get/reply ss*
-element_name property current_value'.
-
-Subscribe
-=========
-
-/subscribe ssss element_name property reply_address reply_port OR
-/subscribe/element_name/property ss reply_address reply_port
-
-Subscribes to the 'property' of 'element_name'. It will receive a
-reply upon subscription confirming it '/subscribe/reply sss "subscribed" 
-element_name property'.
-
-After that, every change in the property will send a message '/subscre/reply ss*
-element_name property current_value' to every computer subscribed.
-
-Unsubscribe
-===========
-
-/unsubscribe ssss element_name property reply_address reply_port
-/unsubscribe/element_name/property ss reply_address reply_port
-
-Unsubscribes a computer to the 'property' of 'element_name'. It will receive a
-reply confirming it won't receive updates anymore '/unsubscribe/reply sss
-"unsubscribed" element_name property'.
-
-Control
+Example
 =======
 
-/control ss*d element_name property new_value time_to_set_in_seconds
-/control/element_name/property *d new_value time_to_set_in_seconds
+Put the controlfromosc element in a pipeline. For instance:
+$ gst-launch --gst-plugin-path=/usr/local/lib/gstreamer-0.10/ oscctrl videotestsrc ! timeoverlay ! xvimagesink audiotestsrc ! autoaudiosink
 
-Sets the 'property' on 'element_name' to 'new_value' in
-'time_to_set_in_seconds'.
+If you installed liblo-tools, you can send and receive OSC messages with "oscsend" and "oscdump".
 
-Locate
-======
+In order to receive message from the oscctrl element, choose a port (here 8888):
+$ oscdump 8888
 
-/locate d seek_time_in_seconds
+In an other shell, you can control the pipeline with oscsend (here using default port 7770):
+oscsend localhost 7770 /set sss videotestsrc0 pattern 1
+oscsend localhost 7770 /set/videotestsrc0/pattern i 0
+oscsend localhost 7770 /get/audiotestsrc0/freq ss localhost 8888
 
-Performs a seek.
+oscsend localhost 7770  /subscribe ssss audiotestsrc0 freq localhost 8888
 
-Pause
-=====
+oscsend localhost 7770 /set/oscctrl0/linear-interp s true
+oscsend localhost 7770 /control ssid audiotestsrc0 freq 1200 10
+oscsend localhost 7770 /set/oscctrl0/linear-interp s false
+oscsend localhost 7770 /control ssid audiotestsrc0 freq 440 2
 
+oscsend localhost 7770  /unsubscribe ssss audiotestsrc0 freq localhost 8888
+
+oscsend localhost 7770 /locate d 10.9
+oscsend localhost 7770 /pause
+oscsend localhost 7770 /play
+
+OSC messages
+============
+
+SET a new value of an element property
+--------------------------------------
+/set ss* <element_name> <property> <new_value>
+/set/element_name/property * <new_value>
+
+GET the value of an element property
+------------------------------------
+/get ssss <element_name> <property> <reply_address> <reply_port>
+/get/element_name/propery ss <reply_address> <reply_port>
+
+SUBSCRIBE, or being notified when an element has his property changed
+---------------------------------------------------------------------
+/subscribe ssss <element_name> <property> <reply_address> <reply_port>
+/unsubscribe ssss <element_name> <property> <reply_address> <reply_port>
+/subscribe/element_name/property ss <reply_address> <reply_port>
+/unsubscribe/element_name/property ss <reply_address> <reply_port>
+
+
+CONTROL, or relative automation (starting when message is received)
+-------------------------------------------------------------------
+/control ss*d <element_name> <property> <new_value> <time_to_reach_value>
+/control/element_name/property *d <new_value> <time_to_reach_value>
+
+LOCATE, or seeking the pipeline
+-------------------------------
+/locate d <absolute_time_in_seconds>
+
+PLAY/PAUSE
+----------
 /pause
-
-Pauses the pipeline.
-
-Play
-====
-
 /play
 
-Plays the pipeline.
+
+
+
+

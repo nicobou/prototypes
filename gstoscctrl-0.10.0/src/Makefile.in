@@ -72,17 +72,15 @@ am__base_list = \
 am__installdirs = "$(DESTDIR)$(plugindir)"
 LTLIBRARIES = $(plugin_LTLIBRARIES)
 am__DEPENDENCIES_1 =
-libgstcontrolfromosc_la_DEPENDENCIES = $(am__DEPENDENCIES_1)
-am_libgstcontrolfromosc_la_OBJECTS =  \
-	libgstcontrolfromosc_la-gstcontrolfromosc.lo \
-	libgstcontrolfromosc_la-aux_functions.lo \
-	libgstcontrolfromosc_la-osc_handlers.lo
-libgstcontrolfromosc_la_OBJECTS =  \
-	$(am_libgstcontrolfromosc_la_OBJECTS)
-libgstcontrolfromosc_la_LINK = $(LIBTOOL) --tag=CC \
-	$(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
-	--mode=link $(CCLD) $(libgstcontrolfromosc_la_CFLAGS) \
-	$(CFLAGS) $(libgstcontrolfromosc_la_LDFLAGS) $(LDFLAGS) -o $@
+libgstoscctrl_la_DEPENDENCIES = $(am__DEPENDENCIES_1)
+am_libgstoscctrl_la_OBJECTS = libgstoscctrl_la-gstoscctrl.lo \
+	libgstoscctrl_la-aux_functions.lo \
+	libgstoscctrl_la-osc_handlers.lo
+libgstoscctrl_la_OBJECTS = $(am_libgstoscctrl_la_OBJECTS)
+libgstoscctrl_la_LINK = $(LIBTOOL) --tag=CC \
+	$(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link \
+	$(CCLD) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) \
+	$(libgstoscctrl_la_LDFLAGS) $(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -96,8 +94,8 @@ CCLD = $(CC)
 LINK = $(LIBTOOL) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) \
 	--mode=link $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
 	$(LDFLAGS) -o $@
-SOURCES = $(libgstcontrolfromosc_la_SOURCES)
-DIST_SOURCES = $(libgstcontrolfromosc_la_SOURCES)
+SOURCES = $(libgstoscctrl_la_SOURCES)
+DIST_SOURCES = $(libgstoscctrl_la_SOURCES)
 HEADERS = $(noinst_HEADERS)
 ETAGS = etags
 CTAGS = ctags
@@ -224,12 +222,12 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-plugin_LTLIBRARIES = libgstcontrolfromosc.la
+plugin_LTLIBRARIES = libgstoscctrl.la
 
 # sources used to compile this plug-in
-libgstcontrolfromosc_la_SOURCES = \
-    gstcontrolfromosc.c \
-    gstcontrolfromosc.h \
+libgstoscctrl_la_SOURCES = \
+    gstoscctrl.c \
+    gstoscctrl.h \
     aux_functions.c \
     aux_functions.h \
     osc_handlers.c \
@@ -237,24 +235,24 @@ libgstcontrolfromosc_la_SOURCES = \
 
 
 # compiler and linker flags used to compile this plugin, set in configure.ac
-libgstcontrolfromosc_la_CFLAGS = \
+libgstoscctrl_la_CFLAGS = \
     $(GST_CFLAGS) \
     $(LIBLO_CFLAGS)
 
-libgstcontrolfromosc_la_LIBADD = \
+libgstoscctrl_la_LIBADD = \
     $(GST_LIBS)    
 
-libgstcontrolfromosc_la_LDFLAGS = \
+libgstoscctrl_la_LDFLAGS = \
     $(GST_PLUGIN_LDFLAGS) \
     $(LIBLO_LDFLAGS)
 
-libgstcontrolfromosc_la_LIBTOOLFLAGS = \
+libgstoscctrl_la_LIBTOOLFLAGS = \
     --tag=disable-static
 
 
 # headers we need but don't want installed
 noinst_HEADERS = \
-    gstcontrolfromosc.h \
+    gstoscctrl.h \
     osc_handlers.h
 
 all: all-am
@@ -322,8 +320,8 @@ clean-pluginLTLIBRARIES:
 	  echo "rm -f \"$${dir}/so_locations\""; \
 	  rm -f "$${dir}/so_locations"; \
 	done
-libgstcontrolfromosc.la: $(libgstcontrolfromosc_la_OBJECTS) $(libgstcontrolfromosc_la_DEPENDENCIES) 
-	$(libgstcontrolfromosc_la_LINK) -rpath $(plugindir) $(libgstcontrolfromosc_la_OBJECTS) $(libgstcontrolfromosc_la_LIBADD) $(LIBS)
+libgstoscctrl.la: $(libgstoscctrl_la_OBJECTS) $(libgstoscctrl_la_DEPENDENCIES) 
+	$(libgstoscctrl_la_LINK) -rpath $(plugindir) $(libgstoscctrl_la_OBJECTS) $(libgstoscctrl_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -331,9 +329,9 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstcontrolfromosc_la-aux_functions.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstcontrolfromosc_la-gstcontrolfromosc.Plo@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstcontrolfromosc_la-osc_handlers.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstoscctrl_la-aux_functions.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstoscctrl_la-gstoscctrl.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/libgstoscctrl_la-osc_handlers.Plo@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
@@ -356,26 +354,26 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(LTCOMPILE) -c -o $@ $<
 
-libgstcontrolfromosc_la-gstcontrolfromosc.lo: gstcontrolfromosc.c
-@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -MT libgstcontrolfromosc_la-gstcontrolfromosc.lo -MD -MP -MF $(DEPDIR)/libgstcontrolfromosc_la-gstcontrolfromosc.Tpo -c -o libgstcontrolfromosc_la-gstcontrolfromosc.lo `test -f 'gstcontrolfromosc.c' || echo '$(srcdir)/'`gstcontrolfromosc.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstcontrolfromosc_la-gstcontrolfromosc.Tpo $(DEPDIR)/libgstcontrolfromosc_la-gstcontrolfromosc.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='gstcontrolfromosc.c' object='libgstcontrolfromosc_la-gstcontrolfromosc.lo' libtool=yes @AMDEPBACKSLASH@
+libgstoscctrl_la-gstoscctrl.lo: gstoscctrl.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -MT libgstoscctrl_la-gstoscctrl.lo -MD -MP -MF $(DEPDIR)/libgstoscctrl_la-gstoscctrl.Tpo -c -o libgstoscctrl_la-gstoscctrl.lo `test -f 'gstoscctrl.c' || echo '$(srcdir)/'`gstoscctrl.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstoscctrl_la-gstoscctrl.Tpo $(DEPDIR)/libgstoscctrl_la-gstoscctrl.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='gstoscctrl.c' object='libgstoscctrl_la-gstoscctrl.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -c -o libgstcontrolfromosc_la-gstcontrolfromosc.lo `test -f 'gstcontrolfromosc.c' || echo '$(srcdir)/'`gstcontrolfromosc.c
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -c -o libgstoscctrl_la-gstoscctrl.lo `test -f 'gstoscctrl.c' || echo '$(srcdir)/'`gstoscctrl.c
 
-libgstcontrolfromosc_la-aux_functions.lo: aux_functions.c
-@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -MT libgstcontrolfromosc_la-aux_functions.lo -MD -MP -MF $(DEPDIR)/libgstcontrolfromosc_la-aux_functions.Tpo -c -o libgstcontrolfromosc_la-aux_functions.lo `test -f 'aux_functions.c' || echo '$(srcdir)/'`aux_functions.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstcontrolfromosc_la-aux_functions.Tpo $(DEPDIR)/libgstcontrolfromosc_la-aux_functions.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='aux_functions.c' object='libgstcontrolfromosc_la-aux_functions.lo' libtool=yes @AMDEPBACKSLASH@
+libgstoscctrl_la-aux_functions.lo: aux_functions.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -MT libgstoscctrl_la-aux_functions.lo -MD -MP -MF $(DEPDIR)/libgstoscctrl_la-aux_functions.Tpo -c -o libgstoscctrl_la-aux_functions.lo `test -f 'aux_functions.c' || echo '$(srcdir)/'`aux_functions.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstoscctrl_la-aux_functions.Tpo $(DEPDIR)/libgstoscctrl_la-aux_functions.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='aux_functions.c' object='libgstoscctrl_la-aux_functions.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -c -o libgstcontrolfromosc_la-aux_functions.lo `test -f 'aux_functions.c' || echo '$(srcdir)/'`aux_functions.c
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -c -o libgstoscctrl_la-aux_functions.lo `test -f 'aux_functions.c' || echo '$(srcdir)/'`aux_functions.c
 
-libgstcontrolfromosc_la-osc_handlers.lo: osc_handlers.c
-@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -MT libgstcontrolfromosc_la-osc_handlers.lo -MD -MP -MF $(DEPDIR)/libgstcontrolfromosc_la-osc_handlers.Tpo -c -o libgstcontrolfromosc_la-osc_handlers.lo `test -f 'osc_handlers.c' || echo '$(srcdir)/'`osc_handlers.c
-@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstcontrolfromosc_la-osc_handlers.Tpo $(DEPDIR)/libgstcontrolfromosc_la-osc_handlers.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='osc_handlers.c' object='libgstcontrolfromosc_la-osc_handlers.lo' libtool=yes @AMDEPBACKSLASH@
+libgstoscctrl_la-osc_handlers.lo: osc_handlers.c
+@am__fastdepCC_TRUE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -MT libgstoscctrl_la-osc_handlers.lo -MD -MP -MF $(DEPDIR)/libgstoscctrl_la-osc_handlers.Tpo -c -o libgstoscctrl_la-osc_handlers.lo `test -f 'osc_handlers.c' || echo '$(srcdir)/'`osc_handlers.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/libgstoscctrl_la-osc_handlers.Tpo $(DEPDIR)/libgstoscctrl_la-osc_handlers.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='osc_handlers.c' object='libgstoscctrl_la-osc_handlers.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstcontrolfromosc_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstcontrolfromosc_la_CFLAGS) $(CFLAGS) -c -o libgstcontrolfromosc_la-osc_handlers.lo `test -f 'osc_handlers.c' || echo '$(srcdir)/'`osc_handlers.c
+@am__fastdepCC_FALSE@	$(LIBTOOL)  --tag=CC $(libgstoscctrl_la_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(libgstoscctrl_la_CFLAGS) $(CFLAGS) -c -o libgstoscctrl_la-osc_handlers.lo `test -f 'osc_handlers.c' || echo '$(srcdir)/'`osc_handlers.c
 
 mostlyclean-libtool:
 	-rm -f *.lo

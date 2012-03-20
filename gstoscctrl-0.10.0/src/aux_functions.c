@@ -83,9 +83,9 @@ create_message (lo_message message, GstElement * target_elem,
     default:
       GST_WARNING ("Unknown parameter type %s\n",
           g_type_name (elem_prop->value_type));
+      lo_message_add (message, "sss", name, property, "unknown parameter type, (supporting only G_TYPE)");
       break;
   }
-
   g_free (name);
 }
 
@@ -225,6 +225,6 @@ register_gvalue_transforms ()
 void
 aux_functions_debug_init ()
 {
-  GST_DEBUG_CATEGORY_INIT (gst_control_from_osc_aux_debug, "controlfromosc",
-      0, "Template controlfromosc");
+  GST_DEBUG_CATEGORY_INIT (gst_control_from_osc_aux_debug, "oscctrl",
+      0, "Template oscctrl");
 }

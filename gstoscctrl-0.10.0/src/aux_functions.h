@@ -16,11 +16,11 @@
 #ifndef __AUX_FUNCTIONS_H__
 #define __AUX_FUNCTIONS_H__
 
-#include "gstcontrolfromosc.h"
+#include "gstoscctrl.h"
 
 void
 create_message (lo_message message, GstElement * target_elem,
-    GParamSpec * elem_prop);
+		GParamSpec * elem_prop);
 
 gint compare_lo_address (gconstpointer a, gconstpointer b);
 

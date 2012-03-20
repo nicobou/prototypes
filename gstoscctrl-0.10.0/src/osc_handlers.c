@@ -15,47 +15,8 @@
 
 #include "osc_handlers.h"
 
-/*   Messages accepted:
-   /set ss* element_name property new_value
-   /get ssss element_name property reply_address reply_port
-   /locate d seek_time_in_seconds
-   /pause
-   /play
-   /subscribe ssss element_name property reply_address reply_port
-   /unsubscribe ssss element_name property reply_address reply_port
-   /control ss*d element_name property new_value time_to_set_in_seconds
-
-   /set/element_name/property * new_value
-   /get/element_name/propery ss reply_address reply_port
-   /subscribe/element_name/property ss reply_address reply_port
-   /unsubscribe/element_name/property ss reply_address reply_port
-   /control/element_name/property *d new_value time_to_set_in_seconds */
-
 GST_DEBUG_CATEGORY_STATIC (gst_control_from_osc_handlers_debug);
 #define GST_CAT_DEFAULT gst_control_from_osc_handlers_debug
-
-#define GET_ELEMENT_AND_PROPERTY(target_elem, elem_prop)                    \
-    GST_INFO("Looking for property '%s' on element '%s'...", property,      \
-            name);                                                          \
-                                                                            \
-    target_elem =                                                           \
-        gst_bin_get_by_name(GST_BIN(GST_ELEMENT_PARENT(filter)), name);     \
-                                                                            \
-    if (target_elem == NULL) {                                              \
-        GST_WARNING("Element '%s' not found!", name);                       \
-        return 1;                                                           \
-    }                                                                       \
-                                                                            \
-    elem_prop = g_object_class_find_property(                               \
-                                G_OBJECT_GET_CLASS(G_OBJECT(target_elem)),  \
-                                property);                                  \
-                                                                            \
-    if (elem_prop == NULL) {                                                \
-        GST_WARNING("Property '%s' not found!", property);                  \
-        return 1;                                                           \
-    }                                                                       \
-                                                                            \
-    GST_INFO("Element '%s' and property '%s' found!");                      \
 
 /* osc handlers */
 
@@ -69,34 +30,103 @@ osc_error (int num, const char *msg, const char *path)
 // Performs a seek
 int
 osc_locate_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+		    lo_arg ** argv, int argc, void *data, void *user_data)
 {
   gdouble time = argv[0]->d;
 
   GST_LOG ("osc_locate_handler. Time '%f'\n", time);
 
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
 
   gint64 pos = GST_SECOND * time;
   gst_element_seek (GST_ELEMENT_PARENT (filter),
-      1.0,
-      GST_FORMAT_TIME,
-      GST_SEEK_FLAG_KEY_UNIT
-      | GST_SEEK_FLAG_SEGMENT
-      | GST_SEEK_FLAG_FLUSH,
-      GST_SEEK_TYPE_SET, pos, GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
+		    1.0,
+		    GST_FORMAT_TIME,
+		    GST_SEEK_FLAG_KEY_UNIT
+		    | GST_SEEK_FLAG_SEGMENT
+		    | GST_SEEK_FLAG_FLUSH,
+		    GST_SEEK_TYPE_SET, pos, GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE);
 
   return 0;
 }
 
+// Get the value of a property of an element.
+int
+osc_get_helper (GstOscctrl * filter,
+		const gchar * name, const gchar * property,
+		const gchar * address, const gchar * port)
+{
+  GstElement *target_elem;
+  GParamSpec *elem_prop;
+
+  GST_INFO("Looking for property '%s' on element '%s'...", property,	
+	   name);							
+
+  lo_address reply = lo_address_new (address, port);
+  lo_message message = lo_message_new ();
+									
+  target_elem =								
+    gst_bin_get_by_name(GST_BIN(GST_ELEMENT_PARENT(filter)), name);     
+									
+  if (target_elem == NULL) {						
+    GST_WARNING("Element '%s' not found!", name);                       
+    lo_send (reply, "/get/reply", "sssss", "getting",
+	     "error","no element with that name",name, property);
+    return 1;
+  }									
+									
+  elem_prop = g_object_class_find_property(				
+					   G_OBJECT_GET_CLASS(G_OBJECT(target_elem)), 
+					   property);			
+									
+  if (elem_prop == NULL) {						
+    GST_WARNING("Property '%s' not found!", property);                  
+    lo_send (reply, "/get/reply", "sssss", "getting",
+	     "error","no property with that name",name, property);
+    return 1;
+
+  }									
+									
+  GST_INFO("Element '%s' and property '%s' found!");			
+
+
+  create_message (message, target_elem, elem_prop);
+
+  GST_INFO ("Sending message '/get/reply' to '%s'", lo_address_get_url (reply));
+  lo_send_message (reply, "/get/reply", message);
+
+  lo_address_free (reply);
+
+  return 0;
+}
+
+int
+osc_get_handler (const char *path, const char *types,
+		 lo_arg ** argv, int argc, void *data, void *user_data)
+{
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
+  const gchar *name = (const gchar *) argv[0];
+  const gchar *property = (const gchar *) argv[1];
+  const gchar *address = (const gchar *) argv[2];
+  const gchar *port = (const gchar *) argv[3];
+
+  GST_LOG
+    ("osc_get_handler. Name: '%s' Property: '%s' Address: '%s' Port: '%s'",
+     name, property, address, port);
+
+  return osc_get_helper (filter, name, property, address, port);
+}
+
+
+
 // Pauses the pipeline
 int
 osc_pause_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+		   lo_arg ** argv, int argc, void *data, void *user_data)
 {
   GST_LOG ("osc_pause_handler");
 
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
 
   gst_element_set_state ((GST_ELEMENT_PARENT (filter)), GST_STATE_PAUSED);
 
@@ -106,11 +136,11 @@ osc_pause_handler (const char *path, const char *types,
 // Plays the pipeline
 int
 osc_play_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+		  lo_arg ** argv, int argc, void *data, void *user_data)
 {
   GST_LOG ("osc_play_handler");
 
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
 
   gst_element_set_state ((GST_ELEMENT_PARENT (filter)), GST_STATE_PLAYING);
 
@@ -121,7 +151,7 @@ osc_play_handler (const char *path, const char *types,
 void
 send_reply (GObject * gobject, GParamSpec * pspec, gpointer user_data)
 {
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
 
   gchar *name = gst_element_get_name (gobject);
   const gchar *property = g_param_spec_get_name (pspec);
@@ -139,7 +169,7 @@ send_reply (GObject * gobject, GParamSpec * pspec, gpointer user_data)
 
   while (next != NULL) {
     GST_INFO ("Sending message '/subscribe/reply' to '%s'",
-        lo_address_get_url (next->data));
+	      lo_address_get_url (next->data));
     lo_send_message (next->data, "/subscribe/reply", message);
     next = g_list_next (next);
   }
@@ -151,67 +181,97 @@ send_reply (GObject * gobject, GParamSpec * pspec, gpointer user_data)
 // Subscribes an address to receive OSC messages every time a property is
 // modified.
 int
-osc_subscribe_helper (GstControlFromOsc * filter,
-    const gchar * name, const gchar * property,
-    const gchar * address, const gchar * port)
+osc_subscribe_helper (GstOscctrl * filter,
+		      const gchar * name, const gchar * property,
+		      const gchar * address, const gchar * port)
 {
   GstElement *target_elem;
   GParamSpec *elem_prop;
+  
+  GST_INFO("Looking for property '%s' on element '%s'...", property,	
+	   name);							
 
-  GET_ELEMENT_AND_PROPERTY (target_elem, elem_prop);
+  lo_address new_subscriber = lo_address_new (address, port);
+    
+  target_elem =								
+    gst_bin_get_by_name(GST_BIN(GST_ELEMENT_PARENT(filter)), name);     
+  
+  if (target_elem == NULL) {						
+    GST_WARNING("Element '%s' not found!", name);                       
+    lo_send (new_subscriber, "/subscribe/reply", "sssss", "subscribing",
+	     "error","no element with that name",name, property);
+    return 1;
+  }									
+  
+  elem_prop = g_object_class_find_property(				
+					   G_OBJECT_GET_CLASS(G_OBJECT(target_elem)), 
+					   property);			
+  
+  if (elem_prop == NULL) {						
+    GST_WARNING("Property '%s' not found!", property);                  
+    lo_send (new_subscriber, "/subscribe/reply", "sssss", "subscribing",
+	     "error","no property with that name",name, property);
+    return 1;
+  }									
+  
+  GST_INFO("Element '%s' and property '%s' found!");			
+  
 
   gchar *key;
   key = g_strconcat (name, " ", property, NULL);
-  lo_address new_subscriber = lo_address_new (address, port);
   gpointer value = NULL;
   GST_INFO ("Looking for key '%s' on hash table", key);
   gboolean key_found = g_hash_table_lookup_extended (filter->subscribers, key,
-      NULL, &value);
+						     NULL, &value);
   if (key_found == FALSE) {
     GST_INFO ("New key '%s' added to hash table\n", key);
     gchar *signal;
     signal = g_strconcat ("notify::", property, NULL);
     GST_INFO ("Connecting '%s' signal '%s' to send_reply callback", name,
-        signal);
+	      signal);
     g_signal_connect (target_elem, signal, G_CALLBACK (send_reply), filter);
     g_free (signal);
   }
 
   GST_INFO ("Adding '%s' to subscribers list and updating hash table",
-      lo_address_get_url (new_subscriber));
+	    lo_address_get_url (new_subscriber));
   value = g_list_prepend (value, new_subscriber);
   g_hash_table_insert (filter->subscribers, key, value);
 
   GST_INFO ("Sending message '/subscribe/reply' to '%s'",
-      lo_address_get_url (new_subscriber));
+	    lo_address_get_url (new_subscriber));
   lo_send (new_subscriber, "/subscribe/reply", "sss", "subscribed",
-      name, property);
+	   name, property);
+
+  //now calling get to notify the subscriber 
+  osc_get_helper (filter, name, property, address, port);
+
 
   return 0;
 }
 
 int
 osc_subscribe_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+		       lo_arg ** argv, int argc, void *data, void *user_data)
 {
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
   const gchar *name = (const gchar *) argv[0];
   const gchar *property = (const gchar *) argv[1];
   const gchar *address = (const gchar *) argv[2];
   const gchar *port = (const gchar *) argv[3];
 
   GST_LOG
-      ("osc_subscribe_handler. Name: '%s' Property: '%s' Address: '%s' Port: '%s'",
-      name, property, address, port);
+    ("osc_subscribe_handler. Name: '%s' Property: '%s' Address: '%s' Port: '%s'",
+     name, property, address, port);
 
   return osc_subscribe_helper (filter, name, property, address, port);
 }
 
 // Unsubscribes a computer from receiving updates.
 int
-osc_unsubscribe_helper (GstControlFromOsc * filter,
-    const gchar * name, const gchar * property,
-    const gchar * address, const gchar * port)
+osc_unsubscribe_helper (GstOscctrl * filter,
+			const gchar * name, const gchar * property,
+			const gchar * address, const gchar * port)
 {
   gchar *key;
   key = g_strconcat (name, " ", property, NULL);
@@ -221,25 +281,27 @@ osc_unsubscribe_helper (GstControlFromOsc * filter,
   GList *head = g_hash_table_lookup (filter->subscribers, key);
 
   GST_INFO ("Looking for '%s' in the subscribers list",
-      lo_address_get_url (unsubscriber));
+	    lo_address_get_url (unsubscriber));
   GList *element = g_list_find_custom (head, lo_address_get_url (unsubscriber),
-      compare_lo_address);
+				       compare_lo_address);
 
   if (element == NULL || head == NULL) {
     GST_WARNING ("'%s' is not subscribed to property '%s' from element '%s'.\n",
-        lo_address_get_url (unsubscriber), name, property);
+		 lo_address_get_url (unsubscriber), name, property);
+    lo_send (unsubscriber, "/unsubscribe/reply", "sssss", "unsubscribing",
+	     "warning", "not subscribed", name, property);
     return 1;
   }
 
   GST_INFO ("Deleting '%s' from subscribers list and updating hash table",
-      lo_address_get_url (unsubscriber));
+	    lo_address_get_url (unsubscriber));
   head = g_list_delete_link (head, element);
   g_hash_table_insert (filter->subscribers, key, head);
 
   GST_INFO ("Sending message '/unsubscribe/reply' to '%s'",
-      lo_address_get_url (unsubscriber));
+	    lo_address_get_url (unsubscriber));
   lo_send (unsubscriber, "/unsubscribe/reply", "sss", "unsubscribed",
-      name, property);
+	   name, property);
   lo_address_free (unsubscriber);
 
   return 0;
@@ -247,9 +309,9 @@ osc_unsubscribe_helper (GstControlFromOsc * filter,
 
 int
 osc_unsubscribe_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+			 lo_arg ** argv, int argc, void *data, void *user_data)
 {
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
   const gchar *name = (const gchar *) argv[0];
   const gchar *property = (const gchar *) argv[1];
   const gchar *address = (const gchar *) argv[2];
@@ -261,57 +323,37 @@ osc_unsubscribe_handler (const char *path, const char *types,
   return osc_unsubscribe_helper (filter, name, property, address, port);
 }
 
-// Get the value of a property of an element.
-int
-osc_get_helper (GstControlFromOsc * filter,
-    const gchar * name, const gchar * property,
-    const gchar * address, const gchar * port)
-{
-  GstElement *target_elem;
-  GParamSpec *elem_prop;
-
-  GET_ELEMENT_AND_PROPERTY (target_elem, elem_prop);
-
-  lo_address reply = lo_address_new (address, port);
-  lo_message message = lo_message_new ();
-
-  create_message (message, target_elem, elem_prop);
-
-  GST_INFO ("Sending message '/get/reply' to '%s'", lo_address_get_url (reply));
-  lo_send_message (reply, "/get/reply", message);
-
-  lo_address_free (reply);
-
-  return 0;
-}
-
-int
-osc_get_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
-{
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
-  const gchar *name = (const gchar *) argv[0];
-  const gchar *property = (const gchar *) argv[1];
-  const gchar *address = (const gchar *) argv[2];
-  const gchar *port = (const gchar *) argv[3];
-
-  GST_LOG
-      ("osc_get_handler. Name: '%s' Property: '%s' Address: '%s' Port: '%s'",
-      name, property, address, port);
-
-  return osc_get_helper (filter, name, property, address, port);
-}
 
 // Sets a property of a certain element.
 int
-osc_set_helper (GstControlFromOsc * filter,
-    const gchar * name, const gchar * property,
-    lo_arg * value, const gchar type)
+osc_set_helper (GstOscctrl * filter,
+		const gchar * name, const gchar * property,
+		lo_arg * value, const gchar type)
 {
   GstElement *target_elem;
   GParamSpec *elem_prop;
 
-  GET_ELEMENT_AND_PROPERTY (target_elem, elem_prop);
+  GST_INFO("Looking for property '%s' on element '%s'...", property,	
+	   name);							
+									
+  target_elem =								
+    gst_bin_get_by_name(GST_BIN(GST_ELEMENT_PARENT(filter)), name);     
+									
+  if (target_elem == NULL) {						
+    GST_WARNING("Element '%s' not found!", name);   
+    return 1;
+  }									
+									
+  elem_prop = g_object_class_find_property(				
+					   G_OBJECT_GET_CLASS(G_OBJECT(target_elem)), 
+					   property);			
+									
+  if (elem_prop == NULL) {						
+    GST_WARNING("Property '%s' not found!", property);                  
+    return 1;
+  }									
+									
+  GST_INFO("Element '%s' and property '%s' found!");			
 
   GValue gv = { 0 };
   gv = osc_value_to_g_value (type, value);
@@ -326,50 +368,71 @@ osc_set_helper (GstControlFromOsc * filter,
 
 int
 osc_set_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+		 lo_arg ** argv, int argc, void *data, void *user_data)
 {
   if (argc < 3)
-    return 1;
+    GST_WARNING ("osc_set_handler called with less than 3 arguments");
+  return 1;
 
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
   const gchar *name = (const gchar *) argv[0];
   const gchar *property = (const gchar *) argv[1];
   lo_arg *value = argv[2];
   const gchar type = types[2];
 
   GST_LOG ("osc_set_handler. Name: '%s' Property: '%s' Type: '%c'",
-      name, property, type);
+	   name, property, type);
 
   return osc_set_helper (filter, name, property, value, type);
 }
 
 // Sets the property of an element to a certain value after 'time' seconds.
 int
-osc_controller_helper (GstControlFromOsc * filter,
-    const gchar * name, const gchar * property,
-    lo_arg * value, const gchar type, const gdouble time)
+osc_controller_helper (GstOscctrl * filter,
+		       const gchar * name, const gchar * property,
+		       lo_arg * value, const gchar type, const gdouble time)
 {
   GstElement *target_elem;
   GParamSpec *elem_prop;
 
-  GET_ELEMENT_AND_PROPERTY (target_elem, elem_prop);
+  GST_INFO("Looking for property '%s' on element '%s'...", property,	
+	   name);							
+									
+  target_elem =								
+    gst_bin_get_by_name(GST_BIN(GST_ELEMENT_PARENT(filter)), name);     
+									
+  if (target_elem == NULL) {						
+    GST_WARNING("Element '%s' not found!", name);                       
+    return 1;
+  }									
+									
+  elem_prop = g_object_class_find_property(				
+					   G_OBJECT_GET_CLASS(G_OBJECT(target_elem)), 
+					   property);			
+									
+  if (elem_prop == NULL) {						
+    GST_WARNING("Property '%s' not found!", property);                  
+    return 1;
+  }									
+									
+  GST_INFO("Element '%s' and property '%s' found!");			
 
   if (filter->controller != NULL)
     g_object_unref (G_OBJECT (filter->controller));
 
   GST_LOG ("Creating GstController and GstInterpolationControlSource");
   filter->controller = gst_controller_new (G_OBJECT (target_elem), property,
-      NULL);
+					   NULL);
   filter->control_source = gst_interpolation_control_source_new ();
 
   GST_LOG ("Setting interpolation mode to: '%d'", filter->interpolate_mode);
   gst_interpolation_control_source_set_interpolation_mode
-      (filter->control_source, filter->interpolate_mode);
+    (filter->control_source, filter->interpolate_mode);
   gst_controller_set_control_source (filter->controller, property,
-      GST_CONTROL_SOURCE (filter->control_source));
+				     GST_CONTROL_SOURCE (filter->control_source));
 
   GST_LOG ("Creating GValues. Property type: '%s'. OSC type: '%c'",
-      G_PARAM_SPEC_TYPE_NAME (elem_prop), type);
+	   G_PARAM_SPEC_TYPE_NAME (elem_prop), type);
   GValue original_value = { 0 };
   GValue new_target_value = { 0 };
   GValue new_value = { 0 };
@@ -384,15 +447,15 @@ osc_controller_helper (GstControlFromOsc * filter,
 
   gst_element_query_position (GST_ELEMENT_PARENT (filter), &format, &cur_time);
   gst_interpolation_control_source_set (filter->control_source,
-      cur_time + GST_SECOND * 0, &original_value);
+					cur_time + GST_SECOND * 0, &original_value);
 
   g_value_transform (&new_target_value, &new_value);
   gchar *value_string = g_strdup_value_contents (&new_value);
   GST_LOG ("Setting property '%s' to value '%s' in '%f' seconds",
-      property, value_string, time);
+	   property, value_string, time);
   g_free (value_string);
   gst_interpolation_control_source_set (filter->control_source,
-      cur_time + GST_SECOND * time, &new_value);
+					cur_time + GST_SECOND * time, &new_value);
 
   g_object_unref (filter->control_source);
 
@@ -401,12 +464,13 @@ osc_controller_helper (GstControlFromOsc * filter,
 
 int
 osc_controller_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+			lo_arg ** argv, int argc, void *data, void *user_data)
 {
   if (argc < 4)
+    
     return 1;
 
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
   const gchar *name = (const gchar *) argv[0];
   const gchar *property = (const gchar *) argv[1];
   lo_arg *value = argv[2];
@@ -423,14 +487,14 @@ osc_controller_handler (const char *path, const char *types,
  * message has not been fully handled and the server should try other methods */
 int
 osc_handler (const char *path, const char *types,
-    lo_arg ** argv, int argc, void *data, void *user_data)
+	     lo_arg ** argv, int argc, void *data, void *user_data)
 {
   char *function_name;
   const gchar *name;
   const gchar *property;
   const gchar *address;
   const gchar *port;
-  GstControlFromOsc *filter = GST_CONTROLFROMOSC (user_data);
+  GstOscctrl *filter = GST_OSCCTRL (user_data);
 
   function_name = strtok ((char *) path, "/");
   name = strtok (NULL, "/");
@@ -444,7 +508,7 @@ osc_handler (const char *path, const char *types,
       address = (const gchar *) argv[0];
       port = (const gchar *) argv[1];
       GST_LOG ("'%s' message received. Address: '%s' Port: '%s'",
-          function_name, address, port);
+	       function_name, address, port);
       return osc_get_helper (filter, name, property, address, port);
     } else if (strcmp (function_name, "set") == 0) {
       lo_arg *value = argv[0];
@@ -455,20 +519,20 @@ osc_handler (const char *path, const char *types,
       address = (const gchar *) argv[0];
       port = (const gchar *) argv[1];
       GST_LOG ("'%s' message received. Address: '%s' Port: '%s'",
-          function_name, address, port);
+	       function_name, address, port);
       return osc_subscribe_helper (filter, name, property, address, port);
     } else if (strcmp (function_name, "unsubscribe") == 0) {
       address = (const gchar *) argv[0];
       port = (const gchar *) argv[1];
       GST_LOG ("'%s' message received. Address: '%s' Port: '%s'",
-          function_name, address, port);
+	       function_name, address, port);
       return osc_unsubscribe_helper (filter, name, property, address, port);
     } else if (strcmp (function_name, "control") == 0) {
       lo_arg *value = argv[0];
       const gchar type = types[0];
       const gdouble time = argv[1]->d;
       GST_LOG ("'%s' message received. Value type: '%c' Time: '%d'",
-          function_name, type, time);
+	       function_name, type, time);
       return osc_controller_helper (filter, name, property, value, type, time);
     }
   } else {
@@ -482,33 +546,59 @@ osc_handler (const char *path, const char *types,
 }
 
 void
-register_osc_handlers (GstControlFromOsc * filter)
+register_osc_handlers (GstOscctrl * filter)
 {
   GST_INFO ("Registering OSC handlers");
-  lo_server_thread_add_method (filter->osc_server, "/set", NULL,
-      osc_set_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/get", "ssss",
-      osc_get_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/locate", "d",
-      osc_locate_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/pause", "",
-      osc_pause_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/play", "",
-      osc_play_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/subscribe", "ssss",
-      osc_subscribe_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/unsubscribe", "ssss",
-      osc_unsubscribe_handler, (void *) filter);
-  lo_server_thread_add_method (filter->osc_server, "/control", NULL,
-      osc_controller_handler, (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/set", 
+			       NULL,
+			       osc_set_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/get",
+			       "ssss",
+			       osc_get_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/locate", 
+			       "d",
+			       osc_locate_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server,
+			       "/pause", 
+			       "",
+			       osc_pause_handler,
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/play", "",
+			       osc_play_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/subscribe", 
+			       "ssss",
+			       osc_subscribe_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/unsubscribe", 
+			       "ssss",
+			       osc_unsubscribe_handler, 
+			       (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       "/control", 
+			       NULL,
+			       osc_controller_handler, 
+			       (void *) filter);
   /* add method that will match any path and args */
-  lo_server_thread_add_method (filter->osc_server, NULL, NULL,
-      osc_handler, (void *) filter);
+  lo_server_thread_add_method (filter->osc_server, 
+			       NULL, 
+			       NULL,
+			       osc_handler, 
+			       (void *) filter);
 }
 
 void
 osc_handlers_debug_init ()
 {
   GST_DEBUG_CATEGORY_INIT (gst_control_from_osc_handlers_debug,
-      "controlfromosc", 0, "Template controlfromosc");
+			   "oscctrl", 0, "Template oscctrl");
 }
