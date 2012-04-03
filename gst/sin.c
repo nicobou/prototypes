@@ -2,15 +2,16 @@
 #include <signal.h>
 
 GstElement *pipeline;
+GstElement *mixer;
+GRand *randomGen; //for frequencies
 
 void
 leave(int sig) {
     g_print ("Returned, stopping playback\n");
     gst_element_set_state (pipeline, GST_STATE_NULL);
-    
     g_print ("Deleting pipeline\n");
     gst_object_unref (GST_OBJECT (pipeline));
-
+    g_rand_free (randomGen);
     exit(sig);
 }
 
@@ -48,48 +49,83 @@ bus_call (GstBus *bus,
     return TRUE;
 }
 
+void add_sin (GstElement *pipeline,GstElement *mixer, GRand *randomGen)
+{
+
+    GstElement *sin;
+    sin       = gst_element_factory_make ("audiotestsrc",NULL);
+    g_object_set (G_OBJECT (sin), "volume", 0.01, NULL);  
+    g_object_set (G_OBJECT (sin), "freq", g_rand_double_range (randomGen,400,500) , NULL);  
+    
+
+    if (!sin)  {
+	g_printerr ("audiotestsrc could not be created. Exiting.\n");
+    }
+    else
+	{
+	    gst_bin_add_many (GST_BIN (pipeline),
+			      sin,
+			      NULL);
+	    gst_element_link_many (sin,
+				   mixer,
+				   NULL);
+
+	    if (!gst_element_sync_state_with_parent (sin))
+		g_error ("audiotestsrc problem sync with parent\n");
+	}
+
+}
+
+static gboolean
+play_sin ()
+{
+    g_print ("adding a new sin\n");
+    add_sin (pipeline,mixer,randomGen);
+    return TRUE;
+}
+
 
 int
 main (int argc,
       char *argv[])
 {
     (void) signal(SIGINT,leave);
+    
+    randomGen = g_rand_new ();
 
     /* Initialisation */
     gst_init (&argc, &argv);
 
     GMainLoop *loop = g_main_loop_new (NULL, FALSE);
 
-    GstElement *audiosink;
-    GstElement *sin;
-
     /* Create gstreamer elements */
     pipeline  = gst_pipeline_new (NULL);
-    sin       = gst_element_factory_make ("audiotestsrc",NULL);
-    audiosink = gst_element_factory_make ("autoaudiosink", NULL);
-    
 
-    if (!pipeline  ||
-	!sin       ||
-	!audiosink
-	) {
-	g_printerr ("One element could not be created. Exiting.\n");
+    if (!pipeline) {
+	g_printerr ("The pipeline could not be created. Exiting.\n");
 	return -1;
     }
+    
+    //creating audio out
+    GstElement *audiosink = gst_element_factory_make ("autoaudiosink", NULL);
+    mixer = gst_element_factory_make ("adder",NULL);
+    gst_bin_add_many (GST_BIN (pipeline),
+		      mixer,
+		      audiosink,	   
+		      NULL);
 
+    gst_element_link_many (mixer,
+			   audiosink,	   
+			   NULL);
+    
     /* message handler */
     GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));
     gst_bus_add_watch (bus, bus_call, loop);
     gst_object_unref (bus);
 
-    gst_bin_add_many (GST_BIN (pipeline),
-		      sin,
-		      audiosink,
-		      NULL);
-
-    gst_element_link_many (sin,
-			   audiosink,
-			   NULL);
+    add_sin (pipeline,mixer,randomGen);
+    // request new sin periodically
+    g_timeout_add (700, (GSourceFunc) play_sin, NULL);
 
     /* Set the pipeline to "playing" state*/
     g_print ("Now playing\n");
@@ -106,5 +142,7 @@ main (int argc,
     g_print ("Deleting pipeline\n");
     gst_object_unref (GST_OBJECT (pipeline));
 
+    g_rand_free (randomGen);
+	
     return 0;
 }
