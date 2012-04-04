@@ -5,5 +5,5 @@ sudo apt-get install liblo-dev
 Basic Installation
 ==================
 
-The shell commands `./one_step_build.sh' should configure and build.  
+The shell commands `./one_step_build.sh' should configure and build.
 
