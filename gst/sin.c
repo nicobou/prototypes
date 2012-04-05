@@ -125,7 +125,7 @@ main (int argc,
 
     add_sin (pipeline,mixer,randomGen);
     // request new sin periodically
-    g_timeout_add (700, (GSourceFunc) play_sin, NULL);
+    g_timeout_add (250, (GSourceFunc) play_sin, NULL);
 
     /* Set the pipeline to "playing" state*/
     g_print ("Now playing\n");

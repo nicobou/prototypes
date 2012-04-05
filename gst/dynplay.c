@@ -3,13 +3,14 @@
 
 static GstElement *pipeline;
 static GstElement *mixer;
+GRand *randomGen; //for playback rate
 
 
 typedef struct
 {
   GstElement *bin, *src, *audioconvert, *pitch, *resample, *mixer, *pipeline;
   GstPad *src_srcpad;
-  GstPad *resample_sinkpad, *resample_srcpad;
+  GstPad *audioconvert_sinkpad, *resample_srcpad;
   GstPad *mixer_sinkpad;
   GstPad *bin_srcpad;
   gfloat speedRatio;
@@ -50,8 +51,8 @@ remove_sample (SourceInfo * info)
 	gst_object_unref (info->src_srcpad);
       if (info->resample_srcpad != NULL)
 	gst_object_unref (info->resample_srcpad);
-      if (info->resample_sinkpad != NULL)
-	gst_object_unref (info->resample_sinkpad);
+      if (info->audioconvert_sinkpad != NULL)
+	gst_object_unref (info->audioconvert_sinkpad);
       
       
       if (info->mixer_sinkpad != NULL)
@@ -104,6 +105,7 @@ leave(int sig) {
     gst_element_set_state (pipeline, GST_STATE_NULL);
     g_print ("Deleting pipeline\n");
     gst_object_unref (GST_OBJECT (pipeline));
+    g_rand_free (randomGen);
     exit(sig);
 }
 
@@ -157,8 +159,9 @@ void pad_added_cb (GstElement* object, GstPad* pad, gpointer user_data)
   //probing eos for cleaning
   gst_pad_add_event_probe (pad, (GCallback) event_probe_cb, (gpointer)info);
   
-  //linking newly created pad with the resample_sinkpad -- FIXME should verify compatibility  
-  gst_pad_link (pad, info->resample_sinkpad);
+  //linking newly created pad with the audioconvert_sinkpad -- FIXME should verify compatibility  
+  gst_pad_link (pad, info->audioconvert_sinkpad);
+  gst_element_link_many (info->audioconvert,info->pitch,info->resample,NULL);
   
   //linking bin with mixer
   // get new pad from adder, adder will now wait for data on this pad
@@ -196,22 +199,25 @@ add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   /* make source with unique name */
   info->bin = gst_element_factory_make ("bin", NULL);
   info->src = gst_element_factory_make ("uridecodebin",NULL);
-  //  info->audioconvert = gst_element_factory_make ("audioconvert",NULL);
-  //info->pitch = gst_element_factory_make ("pitch",NULL);
+  info->audioconvert = gst_element_factory_make ("audioconvert",NULL);
+  info->pitch = gst_element_factory_make ("pitch",NULL);
   info->resample = gst_element_factory_make ("audioresample", NULL);
 
-  //  g_object_set (info->resample, "panorama", speedRatio, NULL);
+  //setting sample properties 
   g_object_set (G_OBJECT (info->src), "uri", "file:///usr/share/sounds/alsa/Front_Center.wav" , NULL);  
   g_signal_connect (G_OBJECT (info->src), "pad-added", (GCallback) pad_added_cb , (gpointer) info);  
-
+  g_object_set (G_OBJECT (info->pitch), "rate", speedRatio , NULL);  
+  
   /* add to the bin */
   gst_bin_add (GST_BIN (info->bin), info->src);
   gst_bin_add (GST_BIN (info->bin), info->resample);
+  gst_bin_add (GST_BIN (info->bin), info->audioconvert);
+  gst_bin_add (GST_BIN (info->bin), info->pitch);
 
   /* get pads from the elements */
   info->src_srcpad = gst_element_get_static_pad (info->src, "src");
   info->resample_srcpad = gst_element_get_static_pad (info->resample, "src");
-  info->resample_sinkpad = gst_element_get_static_pad (info->resample, "sink");
+  info->audioconvert_sinkpad = gst_element_get_static_pad (info->audioconvert, "sink");
 
 
 
@@ -227,11 +233,6 @@ add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   if (!gst_element_sync_state_with_parent (info->bin))
     g_error ("audiotestsrc problem sync with parent\n");
 
-
-  
-
-  g_print ("add_sample returns\n");
-
   return info;
 }
 
@@ -240,7 +241,7 @@ static gboolean
 play_sample ()
 {
     g_print ("adding a new sample\n");
-    add_sample (pipeline,mixer,0.5);
+    add_sample (pipeline,mixer,g_rand_double_range (randomGen,1.0,4.0));
     return TRUE;
 }
 
@@ -250,6 +251,9 @@ main (int argc,
       char *argv[])
 {
     (void) signal(SIGINT,leave);
+    
+    randomGen = g_rand_new ();
+
     
     /* Initialisation */
     gst_init (&argc, &argv);
@@ -288,7 +292,7 @@ main (int argc,
 
     //    add_sample (pipeline,mixer);
     // request new sample periodically
-    g_timeout_add (2000, (GSourceFunc) play_sample, NULL);
+    g_timeout_add (500, (GSourceFunc) play_sample, NULL);
 
     /* Set the pipeline to "playing" state*/
     g_print ("Now playing\n");
@@ -311,6 +315,8 @@ main (int argc,
 
     g_print ("Deleting pipeline\n");
     gst_object_unref (GST_OBJECT (pipeline));
+
+    g_rand_free (randomGen);
 
     return 0;
 }
