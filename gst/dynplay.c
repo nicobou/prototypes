@@ -5,6 +5,11 @@ static GstElement *pipeline;
 static GstElement *mixer;
 GRand *randomGen; //for playback rate
 
+typedef enum SourceState_ {
+   SOURCE_LOADED,
+   SOURCE_PLAYING,
+   SOURCE_PAUSED
+} SourceState;
 
 typedef struct
 {
@@ -14,55 +19,11 @@ typedef struct
   GstPad *mixer_sinkpad;
   GstPad *bin_srcpad;
   gfloat speedRatio;
+  SourceState state;
+  
 } SourceInfo;
 
 
-/* remove the source from the pipeline after removing it from adder */
-static gboolean
-remove_sample (SourceInfo * info)
-{
-
-  if (GST_IS_ELEMENT (info->bin))
-    {
-      g_print ("remove source\n");
-     
-       
-      /* lock the state so that we can put it to NULL without the parent messing
-       * with our state */
-      gst_element_set_locked_state (info->bin, TRUE);
-
-      /* unlink bin from mixer */
-      gst_pad_unlink (info->bin_srcpad, info->mixer_sinkpad);
-      /* give back the pad */
-      gst_element_release_request_pad (info->mixer, info->mixer_sinkpad);
-      
-      /* first stop the source. Remember that this might block when in the PAUSED
-       * state. Alternatively one could send EOS to the source, install an event
-       * probe and schedule a state change/unlink/release from the mainthread. */
-      /* NOTE that the source inside the bin will emit EOS but it will not reach
-       * adder because the element after the source is shut down first. We will send
-       * EOS later */
-      gst_element_set_state (info->bin, GST_STATE_NULL);
-      
-      /* remove from the bin */
-      gst_bin_remove (GST_BIN (pipeline), info->bin);
-      
-      /* release pads */
-      if (info->src_srcpad != NULL)
-	gst_object_unref (info->src_srcpad);
-      if (info->resample_srcpad != NULL)
-	gst_object_unref (info->resample_srcpad);
-      if (info->audioconvert_sinkpad != NULL)
-	gst_object_unref (info->audioconvert_sinkpad);
-      
-      
-      if (info->mixer_sinkpad != NULL)
-	gst_object_unref (info->mixer_sinkpad);
-      
-      g_free (info);
-    }
-  return FALSE;
-}
 
 
 static gboolean
@@ -151,11 +112,24 @@ void pad_removed_cb (GstElement* object, GstPad* pad, gpointer user_data)
 	   GST_DEBUG_PAD_NAME (pad));
 }
 
+
+void
+link_sample (SourceInfo *info)
+{
+  g_print ("link_sample\n");
+
+  //linking bin with mixer
+  // get new pad from adder, adder will now wait for data on this pad
+  // assuming this is a request pad
+  info->mixer_sinkpad = gst_element_get_compatible_pad (info->mixer, info->bin_srcpad, NULL);
+  
+  gst_pad_link (info->bin_srcpad, info->mixer_sinkpad);
+}
+
 void pad_added_cb (GstElement* object, GstPad* pad, gpointer user_data)
 {
   SourceInfo *info = (SourceInfo *) user_data;
-  g_print ("pad_added_cb\n");
-
+  //  g_print ("trying to link pad %s:%s \n", GST_DEBUG_PAD_NAME (pad));
 
   //probing eos for cleaning
   gst_pad_add_event_probe (pad, (GCallback) event_probe_cb, (gpointer)info);
@@ -164,19 +138,7 @@ void pad_added_cb (GstElement* object, GstPad* pad, gpointer user_data)
   gst_pad_link (pad, info->audioconvert_sinkpad);
   gst_element_link_many (info->audioconvert,info->pitch,info->resample,NULL);
   
-  //linking bin with mixer
-  // get new pad from adder, adder will now wait for data on this pad
-  // assuming this is a request pad
-  info->mixer_sinkpad = gst_element_get_compatible_pad (info->mixer, info->bin_srcpad, NULL);
-  g_print ("trying to link pad %s:%s \n",
-	   GST_DEBUG_PAD_NAME (pad));
-  if (info->mixer_sinkpad == NULL) {
-    g_print ("Couldn't get a mixer channel for pad %s:%s\n",
-	     GST_DEBUG_PAD_NAME (pad));
-    return;
-  }
-  gst_pad_link (info->bin_srcpad, info->mixer_sinkpad);
-
+  link_sample (info);
   return;
 }
 
@@ -188,10 +150,73 @@ autoplug_continue_cb (GstElement * uridecodebin, GstPad * somepad, GstCaps * cap
 }
 
 
+void 
+unlink_sample(SourceInfo *info)
+{
+  
+  g_print ("unlink_sample\n");
+
+  /* unlink bin from mixer */
+  gst_pad_unlink (info->bin_srcpad, info->mixer_sinkpad);
+  /* give back the pad */
+  gst_element_release_request_pad (info->mixer, info->mixer_sinkpad);
+  
+}
+
+/* remove the source from the pipeline after removing it from adder */
+static gboolean
+remove_sample (SourceInfo * info)
+{
+
+  if (GST_IS_ELEMENT (info->bin))
+    {
+      g_print ("remove source\n");
+       
+      /* lock the state so that we can put it to NULL without the parent messing
+       * with our state */
+      gst_element_set_locked_state (info->bin, TRUE);
+
+      unlink_sample (info);
+      
+      /* first stop the source. Remember that this might block when in the PAUSED
+       * state. Alternatively one could send EOS to the source, install an event
+       * probe and schedule a state change/unlink/release from the mainthread. */
+      /* NOTE that the source inside the bin will emit EOS but it will not reach
+       * adder because the element after the source is shut down first. We will send
+       * EOS later */
+      gst_element_set_state (info->bin, GST_STATE_NULL);
+      
+      /* remove from the bin */
+      gst_bin_remove (GST_BIN (pipeline), info->bin);
+      
+      gst_object_unref (info->bin);
+
+      
+      /* release pads */
+      if (info->src_srcpad != NULL)
+	gst_object_unref (info->src_srcpad);
+      if (info->resample_srcpad != NULL)
+	gst_object_unref (info->resample_srcpad);
+      if (info->audioconvert_sinkpad != NULL)
+	gst_object_unref (info->audioconvert_sinkpad);
+      
+      
+      if (info->mixer_sinkpad != NULL)
+	gst_object_unref (info->mixer_sinkpad);
+      
+      g_free (info);
+    }
+  return FALSE;
+}
+
+
+
 static SourceInfo *
-add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
+load_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
 {
   SourceInfo *info;
+
+  g_print ("load sample\n");
 
   info = g_new0 (SourceInfo, 1);
   info->speedRatio = speedRatio;
@@ -199,6 +224,11 @@ add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   info->pipeline = pipeline;
   /* make source with unique name */
   info->bin = gst_element_factory_make ("bin", NULL);
+
+  //allows to add and remove to/from the pipeline without disposing
+  //unref done in the remove_sample function
+  gst_object_ref (info->bin);
+
   info->src = gst_element_factory_make ("uridecodebin",NULL);
   info->audioconvert = gst_element_factory_make ("audioconvert",NULL);
   info->pitch = gst_element_factory_make ("pitch",NULL);
@@ -222,31 +252,83 @@ add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   info->resample_srcpad = gst_element_get_static_pad (info->resample, "src");
   info->audioconvert_sinkpad = gst_element_get_static_pad (info->audioconvert, "sink");
 
-
-
   /* create and add a pad for the bin */
   info->bin_srcpad = gst_ghost_pad_new ("src", info->resample_srcpad);
   gst_element_add_pad (info->bin, info->bin_srcpad);
 
-  gst_bin_add (GST_BIN (info->pipeline), info->bin);
-
   gst_element_set_state (info->bin,GST_STATE_READY);
+
+  /* /\* and play *\/ */
+  /* if (!gst_element_sync_state_with_parent (info->bin)) */
+  /*   g_error ("audiotestsrc problem sync with parent\n"); */
+
+  info->state = SOURCE_LOADED;
+  return info;
+}
+
+static gboolean 
+play_sample (SourceInfo *info){
+
+  if (!GST_IS_ELEMENT(info->bin))
+    {
+      g_print ("trying to play something not a GStreamer element\n");
+      return FALSE;
+    }
+  g_print ("play sample\n");
+
+  gst_bin_add (GST_BIN (info->pipeline), info->bin);
+  
+  //if the sample has not been played before, linking is done into pad_added_cb
+  //when the pad is discovered
+  if (info->state == SOURCE_PAUSED)
+    link_sample (info);
+
+  gst_element_set_state (info->bin,GST_STATE_PLAYING);
 
   /* and play */
   if (!gst_element_sync_state_with_parent (info->bin))
     g_error ("audiotestsrc problem sync with parent\n");
 
-  return info;
+  return FALSE;
+}
+
+static gboolean 
+pause_sample (SourceInfo *info){
+
+  g_print ("pause sample\n");
+  
+  unlink_sample (info);
+  //gst_bin_remove (GST_BIN (info->pipeline), info->bin);
+  //  gst_element_set_state (info->bin,GST_STATE_PAUSED);
+
+  info->state = SOURCE_PAUSED;
+
+  return FALSE;
 }
 
 
+
 static gboolean
-play_sample ()
+run_test ()
 {
     g_print ("adding a new sample\n");
-    SourceInfo *sample = add_sample (pipeline,mixer,g_rand_double_range (randomGen,0.1,4.0));
+    SourceInfo *sample = load_sample (pipeline,mixer,g_rand_double_range (randomGen,0.1,4.0));
     
-    g_timeout_add (5000, (GSourceFunc) remove_sample, sample);
+    g_timeout_add (2000, (GSourceFunc) play_sample, sample);
+
+    g_timeout_add (4000, (GSourceFunc) pause_sample, sample);
+
+    g_timeout_add (6000, (GSourceFunc) play_sample, sample); 
+
+    /* g_timeout_add (8000, (GSourceFunc) seek_sample, sample); */
+    
+    /* g_timeout_add (10000, (GSourceFunc) pause_sample, sample); */
+
+    /* g_timeout_add (12000, (GSourceFunc) seek_sample, sample); */
+
+    /* g_timeout_add (14000, (GSourceFunc) play_sample, sample); */
+
+    g_timeout_add (16000, (GSourceFunc) remove_sample, sample);
 
     return TRUE;
 }
@@ -296,10 +378,12 @@ main (int argc,
     gst_bus_add_watch (bus, bus_call, loop);
     gst_object_unref (bus);
 
-    //    add_sample (pipeline,mixer);
+    
     // request new sample periodically
-    g_timeout_add (4000, (GSourceFunc) play_sample, NULL);
-    g_timeout_add (4000, (GSourceFunc) play_sample, NULL);
+    //g_timeout_add (15500, (GSourceFunc) run_test, NULL);
+    
+    //request once
+    run_test ();
 
     /* Set the pipeline to "playing" state*/
     g_print ("Now playing\n");
