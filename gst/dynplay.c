@@ -25,7 +25,8 @@ remove_sample (SourceInfo * info)
   if (GST_IS_ELEMENT (info->bin))
     {
       g_print ("remove source\n");
-      
+     
+       
       /* lock the state so that we can put it to NULL without the parent messing
        * with our state */
       gst_element_set_locked_state (info->bin, TRUE);
@@ -89,9 +90,9 @@ event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
 	     GST_DEBUG_PAD_NAME (pad));
 
     //removing source in order to avoid mixer (adder) waiting for not arriving data     
-      g_idle_add((GSourceFunc)remove_sample, info);
+    //g_idle_add((GSourceFunc)remove_sample, info);
     //do not send EOS to mixer
-    return FALSE;
+    //return FALSE;
   }
   
   return TRUE;
@@ -204,7 +205,9 @@ add_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   info->resample = gst_element_factory_make ("audioresample", NULL);
 
   //setting sample properties 
-  g_object_set (G_OBJECT (info->src), "uri", "file:///usr/share/sounds/alsa/Front_Center.wav" , NULL);  
+  //g_object_set (G_OBJECT (info->src), "uri", "file:///usr/share/sounds/alsa/Front_Center.wav" , NULL);  
+  //g_object_set (G_OBJECT (info->src), "uri", "http://localhost/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_AllNoRef.ogg" , NULL);  
+  g_object_set (G_OBJECT (info->src), "uri", "http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_AllNoRef.ogg" , NULL);  
   g_signal_connect (G_OBJECT (info->src), "pad-added", (GCallback) pad_added_cb , (gpointer) info);  
   g_object_set (G_OBJECT (info->pitch), "rate", speedRatio , NULL);  
   
@@ -241,7 +244,10 @@ static gboolean
 play_sample ()
 {
     g_print ("adding a new sample\n");
-    add_sample (pipeline,mixer,g_rand_double_range (randomGen,1.0,4.0));
+    SourceInfo *sample = add_sample (pipeline,mixer,g_rand_double_range (randomGen,0.1,4.0));
+    
+    g_timeout_add (5000, (GSourceFunc) remove_sample, sample);
+
     return TRUE;
 }
 
@@ -292,7 +298,8 @@ main (int argc,
 
     //    add_sample (pipeline,mixer);
     // request new sample periodically
-    g_timeout_add (500, (GSourceFunc) play_sample, NULL);
+    g_timeout_add (4000, (GSourceFunc) play_sample, NULL);
+    g_timeout_add (4000, (GSourceFunc) play_sample, NULL);
 
     /* Set the pipeline to "playing" state*/
     g_print ("Now playing\n");
