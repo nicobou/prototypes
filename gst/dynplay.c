@@ -235,7 +235,7 @@ load_sample (GstElement *pipeline, GstElement *mixer, gfloat speedRatio)
   info->resample = gst_element_factory_make ("audioresample", NULL);
 
   //setting sample properties 
-  //g_object_set (G_OBJECT (info->src), "uri", "file:///usr/share/sounds/alsa/Front_Center.wav" , NULL);  
+  g_object_set (G_OBJECT (info->src), "uri", "file:///usr/share/sounds/alsa/Front_Center.wav" , NULL);  
   //g_object_set (G_OBJECT (info->src), "uri", "http://localhost/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_AllNoRef.ogg" , NULL);  
   g_object_set (G_OBJECT (info->src), "uri", "http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_AllNoRef.ogg" , NULL);  
   g_signal_connect (G_OBJECT (info->src), "pad-added", (GCallback) pad_added_cb , (gpointer) info);  
@@ -276,13 +276,17 @@ play_sample (SourceInfo *info){
     }
   g_print ("play sample\n");
 
-  gst_bin_add (GST_BIN (info->pipeline), info->bin);
+  if (info->state == SOURCE_LOADED)
+      gst_bin_add (GST_BIN (info->pipeline), info->bin);
   
   //if the sample has not been played before, linking is done into pad_added_cb
   //when the pad is discovered
   if (info->state == SOURCE_PAUSED)
-    link_sample (info);
+      {
+	  link_sample (info);
+	  gst_pad_set_blocked (info->bin_srcpad,FALSE);
 
+      }
   gst_element_set_state (info->bin,GST_STATE_PLAYING);
 
   /* and play */
@@ -292,27 +296,47 @@ play_sample (SourceInfo *info){
   return FALSE;
 }
 
-static gboolean 
-pause_sample (SourceInfo *info){
 
+static gboolean 
+pause_sample (SourceInfo *info)
+{
   g_print ("pause sample\n");
-  
+
+  gst_pad_set_blocked (info->bin_srcpad,TRUE);
   unlink_sample (info);
-  //gst_bin_remove (GST_BIN (info->pipeline), info->bin);
-  //  gst_element_set_state (info->bin,GST_STATE_PAUSED);
 
   info->state = SOURCE_PAUSED;
 
   return FALSE;
 }
 
+static gboolean
+seek_sample (SourceInfo *info)
+{
+    g_print ("seek_sample\n");
+    
+    gboolean ret = gst_element_seek (info->bin,
+				     1.0,
+				     GST_FORMAT_TIME,
+				     GST_SEEK_FLAG_FLUSH |
+				     GST_SEEK_FLAG_SEGMENT | 
+				     GST_SEEK_FLAG_ACCURATE,
+				     GST_SEEK_TYPE_SET,
+				     0,
+				     GST_SEEK_TYPE_NONE,
+				     GST_CLOCK_TIME_NONE);
+    if (!ret)
+	g_print ("seek not handled\n");
+    
+    return FALSE;
+}
 
 
 static gboolean
 run_test ()
 {
     g_print ("adding a new sample\n");
-    SourceInfo *sample = load_sample (pipeline,mixer,g_rand_double_range (randomGen,0.1,4.0));
+    SourceInfo *sample = load_sample (pipeline,mixer,1.0);//g_rand_double_range (randomGen,0.1,4.0));
     
     g_timeout_add (2000, (GSourceFunc) play_sample, sample);
 
@@ -320,14 +344,14 @@ run_test ()
 
     g_timeout_add (6000, (GSourceFunc) play_sample, sample); 
 
-    /* g_timeout_add (8000, (GSourceFunc) seek_sample, sample); */
+    g_timeout_add (8000, (GSourceFunc) seek_sample, sample);
+
+    g_timeout_add (10000, (GSourceFunc) pause_sample, sample); 
     
-    /* g_timeout_add (10000, (GSourceFunc) pause_sample, sample); */
-
-    /* g_timeout_add (12000, (GSourceFunc) seek_sample, sample); */
-
-    /* g_timeout_add (14000, (GSourceFunc) play_sample, sample); */
-
+    g_timeout_add (12000, (GSourceFunc) seek_sample, sample); 
+    
+    g_timeout_add (14000, (GSourceFunc) play_sample, sample); 
+    
     g_timeout_add (16000, (GSourceFunc) remove_sample, sample);
 
     return TRUE;
