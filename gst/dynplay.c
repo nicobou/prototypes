@@ -6,9 +6,12 @@ static GstElement *mixer;
 GRand *randomGen; //for playback rate
 
 typedef enum GourpState_ {
-  SOURCE_CREATED,
-  SOURCE_PLAYING,
-  SOURCE_PAUSED
+  //  GROUP_TO_CREATED,
+  //GROUP_CREATED,
+  GROUP_TO_PLAYING,
+  GROUP_PLAYING,
+  GROUP_TO_PAUSED,
+  GROUP_PAUSED
 } GroupState;
 
 
@@ -19,8 +22,17 @@ typedef struct
   GroupState state;
   GHashTable *datastreams; 
   GAsyncQueue *commands;
-  guint num_tasks;
+  // a thread safe counter of task to do before actually going to a state
+  // and unlocking new command
+  GAsyncQueue *num_tasks; 
 } Group;
+
+typedef struct 
+{
+  gboolean (*func)(gpointer, gpointer);
+  Group *group;
+  gpointer arg;
+} GroupCommand;
 
 typedef struct
 {
@@ -29,9 +41,6 @@ typedef struct
   GstPad *resample_srcpad;
   Group *group; // group to which the sample belongs
 } Sample;
-
-
-
 
 static gboolean
 event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
@@ -136,16 +145,26 @@ group_unlink_datastream (gpointer key, gpointer value, gpointer user_data)
 {
   Sample *sample = (Sample *) key;
   
-  GstPad *peerpad = gst_pad_get_peer (sample->bin_srcpad);  
-  GstElement *peerpadparent = gst_pad_get_parent_element (peerpad);  
-  // unlink from mixer     
-  gst_pad_unlink (sample->bin_srcpad, peerpad);  
-  // give back the pad     
-  gst_element_release_request_pad (peerpadparent, peerpad);  
-  gst_object_unref (peerpad);  
-  gst_object_unref (peerpadparent);  
+  GstPad *peerpad = gst_pad_get_peer (sample->bin_srcpad);
+  if (GST_IS_PAD (peerpad))
+    {
+      GstElement *peerpadparent = gst_pad_get_parent_element (peerpad);  
+      // unlink from mixer     
+      gst_pad_unlink (sample->bin_srcpad, peerpad);  
+      // give back the pad     
+      gst_element_release_request_pad (peerpadparent, peerpad);  
+      gst_object_unref (peerpad);  
+      gst_object_unref (peerpadparent);
+    }
 }
 
+void
+group_add_task (gpointer key, gpointer value, gpointer user_data)
+{
+  Group *group = (Group *) user_data;
+  g_async_queue_push (group->num_tasks,group);
+  //g_print ("-- task added\n");
+}
 
 static gboolean   
 autoplug_continue_cb (GstElement * uridecodebin, GstPad * somepad, GstCaps * caps, gpointer user_data)   
@@ -189,18 +208,65 @@ group_remove (Group * group)
   return FALSE;   
 }   
 
+gboolean
+group_launch_command (gpointer user_data)
+{
+  GroupCommand *command = (GroupCommand *) user_data;
+  (*command->func) (command->group,command->arg);
+  g_free (command);
+  return FALSE; //to be removed from the gmain loop
+}
+
+void 
+group_try_change_state (gpointer user_data)
+{
+  Group *group = (Group *) user_data;
+
+  //g_print ("** try to change state %d\n", g_async_queue_length (group->num_tasks));
+
+  if (g_async_queue_length (group->num_tasks) != 0 )
+    {
+    g_async_queue_try_pop (group->num_tasks);
+
+     if (g_async_queue_length (group->num_tasks) == 0 ) 
+       { 
+	 if (group->state == GROUP_TO_PLAYING) 
+	   group->state = GROUP_PLAYING;  
+	 else if (group->state == GROUP_TO_PAUSED) 
+	   group->state = GROUP_PAUSED;
+
+	 //checking if a command is waiting for being called
+	 if (g_async_queue_length (group->commands) != 0)
+	   {
+	     GroupCommand *command = g_async_queue_try_pop (group->commands);
+	     //launching the command with the higher priority 
+	     g_idle_add_full (G_PRIORITY_DEFAULT,
+			      &group_launch_command,
+			      (gpointer)command,
+			      NULL);
+	     //g_print ("queue size %d\n",g_async_queue_length (group->num_tasks));
+	     //g_print ("** new command launched\n");
+	   }
+       } 
+    }  
+  else 
+    {
+      g_print ("nothing to do for changing the state\n");
+    }
+}
 
 void 
 pad_blocked_cb (GstPad *pad, gboolean blocked, gpointer user_data)
 {
   Sample *sample = (Sample *) user_data;
-  //sample->group->num_tasks--;
-  //g_print ("pad_blocked_cb %d\n",sample->group->num_tasks);
+
   if (blocked)
     {
       group_unlink_datastream ((gpointer)sample,NULL,NULL);
     }
-  
+
+  group_try_change_state (sample->group);
+
 }
 
 void
@@ -214,8 +280,8 @@ group_unblock_datastream (gpointer key, gpointer value, gpointer user_data)
       g_print  ("play_source: pb unblocking\n");
     }
 }
-void
 
+void
 group_block_datastream (gpointer key, gpointer value, gpointer user_data)
 {
   Sample *sample = (Sample *) key;
@@ -226,7 +292,25 @@ group_block_datastream (gpointer key, gpointer value, gpointer user_data)
     }
 }
 
-static gboolean    
+void
+group_queue_command (Group *group, gpointer func, gpointer arg)
+{
+  GroupCommand *command = g_new0 (GroupCommand,1);
+  command->func = func;
+  command->group = group;
+  command->arg = arg;
+  g_async_queue_push (group->commands,command);
+  g_print ("-- queuing command\n");
+}
+
+gboolean
+group_play_wrapped_for_commands (gpointer user_data, gpointer user_data2)
+{
+  Group *group = (Group *) user_data;
+  return group_play (group);
+}
+
+gboolean    
 group_play (Group *group){   
 
   if (!GST_IS_ELEMENT(group->bin))   
@@ -234,53 +318,81 @@ group_play (Group *group){
       g_print ("trying to play something not a GStreamer element\n");   
       return FALSE;   
     }   
-  g_print ("play group\n");   
-
-  if (group->state == SOURCE_CREATED)   
-    {   
-      if (!gst_element_sync_state_with_parent (group->bin))        
-	g_error ("group_play problem sync with parent\n");        
-      g_print("----------------------------------hash table size %d\n",g_hash_table_size (group->datastreams));
-      group->state = SOURCE_PAUSED;
-    }
   
-  if (group->state == SOURCE_PAUSED)   
-    {   
-      group->num_tasks = g_hash_table_size (group->datastreams);
-      
-      g_hash_table_foreach (group->datastreams,(GHFunc)group_link_datastream,group);
+  /* if (group->state == GROUP_CREATED)    */
+  /*   {    */
+  /*     /\* if (!gst_element_sync_state_with_parent (group->bin))         *\/ */
+  /*     /\* 	g_error ("group_play problem sync with parent\n");         *\/ */
+  /*     g_print("----hash table size %d\n",g_hash_table_size (group->datastreams)); */
+  /*     group->state = GROUP_PAUSED; */
+  /*   } */
 
-      g_hash_table_foreach (group->datastreams,(GHFunc)group_unblock_datastream,group);
-      
-      group->state = SOURCE_PLAYING;   
-    }
- 
+  switch ( group->state ) {
+  case GROUP_PAUSED:
+    g_print ("** play group\n");   
+    group->state = GROUP_TO_PLAYING;   
+    g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
+    g_hash_table_foreach (group->datastreams,(GHFunc)group_link_datastream,group);
+    g_hash_table_foreach (group->datastreams,(GHFunc)group_unblock_datastream,group);
+    break;
+  case GROUP_TO_PAUSED:
+    group_queue_command (group, &group_play_wrapped_for_commands, NULL);
+    break;
+  /* case GROUP_CREATED: */
+  /*   break; */
+  case GROUP_PLAYING:
+    break;
+  case GROUP_TO_PLAYING:
+    break;
+  default:
+    g_print ("unknown state when playing");
+    break;
+  }
+  
   return FALSE;   
 }   
 
+gboolean
+group_pause_wrapped_for_commands (gpointer user_data, gpointer user_data2)
+{
+  Group *group = (Group *) user_data;
+  return group_pause (group);
+}
 
-static gboolean    
+gboolean    
 group_pause (Group *group)   
 {   
-  g_print ("pause group\n");   
+  g_print ("pause group called\n");  
 
-  if (group->state == SOURCE_PLAYING){
-
+  switch ( group->state ) {
+  case GROUP_PAUSED:
+    break;
+  case GROUP_TO_PAUSED:
+    break;
+  /* case GROUP_CREATED: */
+  /*   break; */
+  case GROUP_PLAYING:
+    g_print ("** group pause\n");
+    group->state = GROUP_TO_PAUSED;
+    g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
     g_hash_table_foreach (group->datastreams,(GHFunc)group_block_datastream,NULL);
-    
-    group->state = SOURCE_PAUSED;
+    break;
+  case GROUP_TO_PLAYING:
+    group_queue_command (group,&group_pause_wrapped_for_commands,NULL);
+    break;
+  default:
+    g_print ("unknown state when playing");
+    break;
   }
-  else
-    {
-      g_print ("warning about pause not handled in this state\n");
-    }
   return FALSE;
 }
 
-void uridecodebin_no_more_pads_cb (GstElement* object, gpointer user_data)   
+void 
+uridecodebin_no_more_pads_cb (GstElement* object, gpointer user_data)   
 {   
   Group *group = (Group *) user_data;   
-  g_print ("no more pads\n");
+  //g_print ("** no more pads\n");
+  group_try_change_state (group);
 }
 
 void uridecodebin_drained_cb (GstElement* object, gpointer user_data)   
@@ -297,6 +409,9 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
   
   if (g_str_has_prefix (padname, "audio/"))
     {
+      //adding a task to wait for launching next command
+      group_add_task (NULL,NULL,group);
+
       Sample *sample = g_new0 (Sample,1);
       sample->group = group;
       //probing eos for cleaning   
@@ -339,7 +454,7 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       //adding sample to hash table
       g_hash_table_insert (group->datastreams,sample,uri); //FIXME clean uri when remove
       
-      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,NULL,NULL);
+      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);
     }
   else
     {
@@ -358,7 +473,33 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
 void 
 group_add_uri (Group* group, const char *uri) 
 { 
-  g_print ("adding uri\n");
+  gchar *uri_tmp;
+
+  switch ( group->state ) {
+  case GROUP_PAUSED:
+    group->state = GROUP_TO_PAUSED;
+    group_add_task (NULL,NULL,group);
+    break;
+  case GROUP_TO_PAUSED:
+    uri_tmp = g_strdup(uri);
+    group_queue_command (group, group_add_uri, uri_tmp);
+    return;
+    break;
+  case GROUP_PLAYING:
+    group->state = GROUP_TO_PLAYING;
+    group_add_task (NULL,NULL,group);
+    break;
+  case GROUP_TO_PLAYING:
+    uri_tmp = g_strdup(uri);
+    group_queue_command (group, group_add_uri, uri_tmp);
+    return;
+    break;
+  default:
+    g_print ("unknown state when adding uri\n");
+    break;
+  }
+
+  g_print ("** adding uri\n");
 
   GstElement *src = gst_element_factory_make ("uridecodebin",NULL);   
   g_signal_connect (G_OBJECT (src), 
@@ -382,6 +523,7 @@ group_add_uri (Group* group, const char *uri)
 		NULL);
   g_object_set (G_OBJECT (src), "uri",   
     		uri, NULL);  
+
   gst_bin_add (GST_BIN (group->bin), src);
   gst_element_set_state (src, GST_STATE_PLAYING);
 
@@ -392,10 +534,10 @@ group_create (GstElement *pipeline, GstElement *mixer)
 {   
   Group *group;   
   g_print ("create group\n");   
-
+  
   group = g_new0 (Group, 1);   
   group->commands = g_async_queue_new ();
-  group->num_tasks=0;
+  group->num_tasks = g_async_queue_new ();
   group->speedRatio = 1.0;   
   group->mixer = mixer;   
   group->pipeline = pipeline;   
@@ -405,8 +547,12 @@ group_create (GstElement *pipeline, GstElement *mixer)
   //unref done in the group_remove function   
   gst_object_ref (group->bin);   
   gst_bin_add (GST_BIN (group->pipeline), group->bin);   
-  gst_element_set_state (group->bin,GST_STATE_READY);    
-  group->state = SOURCE_CREATED;    
+  gst_element_set_state (group->bin,GST_STATE_READY); 
+
+  /* if (!gst_element_sync_state_with_parent (group->bin))         */
+  /* 	g_error ("group_play problem sync with parent\n");     */
+
+  group->state = GROUP_PAUSED;    
   return group;   
 }   
 
@@ -431,19 +577,37 @@ group_seek_datastream (gpointer key, gpointer value, gpointer user_data)
   return;
 }
 
-static gboolean
-seek_group (Group *group)
+gboolean
+group_seek_wrapped_for_commands (gpointer user_data, gpointer user_data2)
 {
-  g_print ("seek_group\n");
-  
-  GroupState state = group->state; 
-    
-  group_pause (group);
-  
-  g_hash_table_foreach (group->datastreams,(GHFunc)group_seek_datastream,NULL);
-  
-  group_play (group);
+  Group *group = (Group *) user_data;
+  return group_seek (group);
+}
 
+gboolean
+group_seek (Group *group)
+{
+    
+  switch ( group->state ) {
+  case GROUP_TO_PAUSED:
+    group_queue_command (group, &group_seek_wrapped_for_commands, NULL);
+    return FALSE;
+    break;
+  case GROUP_TO_PLAYING:
+    group_queue_command (group, &group_seek_wrapped_for_commands, NULL);
+    return FALSE;
+    break;
+  default:
+    g_print ("unhandled state when seeking\n");
+    break;
+  }
+
+  g_print ("** group_seek\n");
+  
+  group_add_task (NULL,NULL,group);
+  g_hash_table_foreach (group->datastreams,(GHFunc)group_seek_datastream,NULL);
+  group_try_change_state (group);
+  
   return FALSE;
 }
 
@@ -471,48 +635,25 @@ run_test ()
  /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");  */
 
  /* g_timeout_add (1000, (GSourceFunc) group_play, group2); */
- /* g_timeout_add (1500, (GSourceFunc) seek_group, group2); */
+ /* g_timeout_add (1500, (GSourceFunc) group_seek, group2); */
  
- 
- g_timeout_add (2000, (GSourceFunc) group_play, group1); 
- 
- g_timeout_add (3000, (GSourceFunc) seek_group, group1);  
- 
-  g_timeout_add (5000, (GSourceFunc) group_pause, group1);   
-  
-  g_timeout_add (6000, (GSourceFunc) group_play, group1);  
- 
- /* g_timeout_add (7000, (GSourceFunc) group_pause, group1);  */
- 
- /* g_timeout_add (8000, (GSourceFunc) group_play, group1);  */
- 
- /* g_timeout_add (9000, (GSourceFunc) group_pause, group1);  */
- 
- /* g_timeout_add (10000, (GSourceFunc) group_play, group1);  */
- 
- /* g_timeout_add (11000, (GSourceFunc) group_pause, group1);  */
- 
- /* g_timeout_add (12000, (GSourceFunc) group_play, group1);  */
- 
- /* g_timeout_add (13000, (GSourceFunc) group_pause, group1);  */
+  group_play(group1);
 
- /* g_timeout_add (14000, (GSourceFunc) group_play, group1);  */
+  group_pause (group1);
+
+  group_seek(group1);
+
+  group_play(group1);
+ /* g_timeout_add (2000, (GSourceFunc) group_play, group1);  */
  
-  //g_timeout_add (4000, (GSourceFunc) seek_group, group1);
-
-  /* //speedRatio taken into account when seeking */
-  /* group1->speedRatio = (gdouble) 2.0; */
-
-  /* g_timeout_add (8000, (GSourceFunc) seek_group, group1); */
-
-  /* g_timeout_add (10000, (GSourceFunc) group_pause, group1); */
-
-  /* g_timeout_add (12000, (GSourceFunc) seek_group, group1); */
-
-  /* g_timeout_add (14000, (GSourceFunc) group_play, group1); */
-
-  g_timeout_add (30000, (GSourceFunc) group_remove, group1);
-
+ /* g_timeout_add (3000, (GSourceFunc) group_seek, group1);   */
+ 
+ /* g_timeout_add (5000, (GSourceFunc) group_pause, group1);    */
+ 
+ /* g_timeout_add (6000, (GSourceFunc) group_play, group1);   */
+ 
+ /* g_timeout_add (30000, (GSourceFunc) group_remove, group1); */
+ 
   return TRUE;
 }
 
@@ -571,7 +712,7 @@ main (int argc,
   run_test ();
 
   /* Set the pipeline to "playing" state*/
-  g_print ("Now playing\n");
+  g_print ("Now playing pipeline\n");
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
   /* if (!gst_element_seek (pipeline, 0.6, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH, */
@@ -582,7 +723,7 @@ main (int argc,
   /*   } */
 
   /* Iterate */
-  g_print ("Running...\n");
+  g_print ("Pipeline running...\n");
   g_main_loop_run (loop);
 
   /* Out of the main loop, clean up nicely */
