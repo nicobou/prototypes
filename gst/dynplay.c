@@ -6,12 +6,10 @@ static GstElement *mixer;
 GRand *randomGen; //for playback rate
 
 typedef enum GourpState_ {
-  //  GROUP_TO_CREATED,
-  //GROUP_CREATED,
-  GROUP_TO_PLAYING,
-  GROUP_PLAYING,
-  GROUP_TO_PAUSED,
-  GROUP_PAUSED
+  GROUP_TO_PLAYING = 0,
+  GROUP_PLAYING = 1,
+  GROUP_TO_PAUSED = 2,
+  GROUP_PAUSED =3
 } GroupState;
 
 
@@ -22,6 +20,7 @@ typedef struct
   GroupState state;
   GHashTable *datastreams; 
   GAsyncQueue *commands;
+    GstPad *masterpad; //pad of the sample that determine end of play
   // a thread safe counter of task to do before actually going to a state
   // and unlocking new command
   GAsyncQueue *num_tasks; 
@@ -47,39 +46,35 @@ event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
 {
   Group *group = (Group *)data;
 
-  /* if (GST_EVENT_TYPE (event) == GST_EVENT_NEWSEGMENT)  */
-  /*   g_print ("************************** new segment probed \n"); */
-  
   if (GST_EVENT_TYPE (event) == GST_EVENT_EOS) { 
-    g_print ("EOS caught and disabled \n");
-    g_print ("pad with EOS %s:%s \n",
-	     GST_DEBUG_PAD_NAME (pad));
-    
-    //group->state = GROUP_PAUSED;
-    gst_pad_send_event (pad,
-			gst_event_new_seek (1.0, 
-					    GST_FORMAT_TIME, 
-					    GST_SEEK_FLAG_FLUSH 
-					    //| GST_SEEK_FLAG_SEGMENT
-					    | GST_SEEK_FLAG_ACCURATE, 
-					    GST_SEEK_TYPE_SET, 
-					    0.0 * GST_SECOND, 
-					    GST_SEEK_TYPE_NONE, 
-					    GST_CLOCK_TIME_NONE)
-			);
-    
+      //g_print ("EOS caught and disabled \n");
+    g_print ("pad with EOS %s:%s, pointer:%p \n",
+	     GST_DEBUG_PAD_NAME (pad),pad);
 
-     /* group_pause (group); */
-    return FALSE; 
-     
-    //removing source in order to avoid mixer (adder) waiting for not arriving data     
-    //g_idle_add((GSourceFunc)group_remove, group);
-    //do not send EOS to mixer
-    //return FALSE;
+    //gst_pad_set_blocked_async (pad,TRUE,(GstPadBlockCallback)pad_blocked_cb,sample)
+
+    
+    
+     if (pad == group->masterpad)
+	 {
+	     g_print ("!!! masterpad\n");
+	     group_pause (group);
+	 }
+     gst_pad_send_event (pad, 
+     			gst_event_new_seek (1.0,  
+     					    GST_FORMAT_TIME,  
+     					    GST_SEEK_FLAG_FLUSH  
+     					    | GST_SEEK_FLAG_ACCURATE,  
+     					    GST_SEEK_TYPE_SET,  
+     					    0.0 * GST_SECOND,  
+     					    GST_SEEK_TYPE_NONE,  
+     					    GST_CLOCK_TIME_NONE) 
+     			); 
+
+     return FALSE; 
   }
   
   //  g_print ("event received :%d\n",GST_EVENT_TYPE (event));
-  
   return TRUE;
 }
 
@@ -245,7 +240,7 @@ group_try_change_state (gpointer user_data)
 {
   Group *group = (Group *) user_data;
 
-  //g_print ("** try to change state %d\n", g_async_queue_length (group->num_tasks));
+  g_print ("** try to change state %d\n", g_async_queue_length (group->num_tasks));
 
   if (g_async_queue_length (group->num_tasks) != 0 )
     {
@@ -282,7 +277,10 @@ pad_blocked_cb (GstPad *pad, gboolean blocked, gpointer user_data)
 
   if (blocked)
     {
+	
       group_unlink_datastream ((gpointer)sample,NULL,NULL);
+      g_print ("pad blocked and unlinked\n");
+
     }
 
   group_try_change_state (sample->group);
@@ -345,6 +343,9 @@ group_play_wrapped_for_commands (gpointer user_data, gpointer user_data2)
 gboolean    
 group_play (Group *group){   
 
+
+    g_print ("trying to play\n");
+
   if (!GST_IS_ELEMENT(group->bin))   
     {   
       g_print ("trying to play something not a GStreamer element\n");   
@@ -394,11 +395,13 @@ group_pause_wrapped_for_commands (gpointer user_data, gpointer user_data2)
 gboolean    
 group_pause (Group *group)   
 {   
+    g_print ("try to pause, state is %d\n",group->state);
+
   switch ( group->state ) {
   case GROUP_PAUSED:
     break;
   case GROUP_TO_PAUSED:
-    group_queue_command (group,&group_pause_wrapped_for_commands,NULL);
+      //group_queue_command (group,&group_pause_wrapped_for_commands,NULL);
     break;
   case GROUP_PLAYING:
     g_print ("** group pause\n");
@@ -466,7 +469,11 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       sample->bin_srcpad = gst_ghost_pad_new (NULL, sample->resample_srcpad); 
       gst_pad_set_active(sample->bin_srcpad,TRUE);
       gst_element_add_pad (group->bin, sample->bin_srcpad);    
-      
+      if (group->masterpad == NULL)
+	  {
+	      g_print ("---------------- masterpad is %p\n",sample->bin_srcpad);
+	      group->masterpad = sample->bin_srcpad;
+	  }
       //probing eos   
       gst_pad_add_event_probe (sample->bin_srcpad, (GCallback) event_probe_cb, (gpointer)sample->group);   
       
@@ -587,6 +594,7 @@ group_create (GstElement *pipeline, GstElement *mixer)
   group->mixer = mixer;   
   group->pipeline = pipeline;   
   group->bin = gst_element_factory_make ("bin", NULL);   
+  group->masterpad = NULL;
 
   /* GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline)); */
   /* gst_bus_add_signal_watch (bus); //FIXME should be cleanned */
@@ -612,18 +620,21 @@ group_seek_datastream (gpointer key, gpointer value, gpointer user_data)
   
   gboolean ret;
   ret = gst_element_seek (sample->resample, 
-   			  10.0, 
+   			  3.0, 
 			  GST_FORMAT_TIME, 
 			  GST_SEEK_FLAG_FLUSH 
 			  //| GST_SEEK_FLAG_SEGMENT
 			  | GST_SEEK_FLAG_ACCURATE, 
 			  GST_SEEK_TYPE_SET, 
-			  10.0 * GST_SECOND, 
+			  310.0 * GST_SECOND, 
 			  GST_SEEK_TYPE_NONE, 
 			  GST_CLOCK_TIME_NONE); 
   if (!ret)
     g_print ("seek not handled\n");
-  
+  /* gst_element_get_state (sample->resample, */
+  /* 			 NULL, */
+  /* 			 NULL, */
+  /* 			 GST_CLOCK_TIME_NONE); */
   return;
 }
 
@@ -686,42 +697,30 @@ run_test ()
   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");
   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");
   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");
-  group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm"); */
 
-  Group *group2 = group_create (pipeline,mixer);  
-  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");  
-  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");  
+  /* Group *group2 = group_create (pipeline,mixer);   */
+  /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");   */
+  /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");   */
   
-  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");  
+  /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");   */
   
-  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");  
+  /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");   */
 
-  g_timeout_add (1000, (GSourceFunc) group_play, group2); 
+  //  g_timeout_add (1000, (GSourceFunc) group_play, group2); 
   
   group_play (group1);
 
   group_seek (group1);
 
-  group_pause (group1); 
+  /* group_pause (group1);  */
 
-  g_timeout_add (2000, (GSourceFunc) group_play, group1);  
+  /* g_timeout_add (2000, (GSourceFunc) group_play, group1);   */
  
-  g_timeout_add (3000, (GSourceFunc) group_seek, group1);   
+  /* g_timeout_add (3000, (GSourceFunc) group_seek, group1);    */
  
-  g_timeout_add (5000, (GSourceFunc) group_pause, group1);    
- 
-  g_timeout_add (5500, (GSourceFunc) group_seek, group1);   
+  g_timeout_add (30000, (GSourceFunc) group_play, group1);  
 
-  g_timeout_add (6000, (GSourceFunc) group_play, group1);   
-
-  
-
-  /* g_timeout_add (30000, (GSourceFunc) group_seek, group1); */
-
-  /* g_timeout_add (31000, (GSourceFunc) group_play, group1); */
- 
-  /* g_timeout_add (8000, (GSourceFunc) group_remove, group1);  */
- 
   return TRUE;
 }
 
