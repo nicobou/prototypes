@@ -2,8 +2,9 @@
 #include <signal.h>
 
 static GstElement *pipeline;
-static GstElement *mixer;
-GRand *randomGen; //for playback rate
+static GstElement *audiomixer;
+static GstElement *videomixer;
+
 
 typedef enum GourpState_ {
   GROUP_TO_PLAYING = 0,
@@ -15,8 +16,7 @@ typedef enum GourpState_ {
 
 typedef struct
 {
-  GstElement *bin, *mixer, *pipeline;
-  gdouble speedRatio;
+  GstElement *bin, *audiomixer, *videomixer,  *pipeline;
   GroupState state;
   GHashTable *datastreams; 
   GAsyncQueue *commands;
@@ -36,9 +36,10 @@ typedef struct
 
 typedef struct
 {
-  GstElement *audioconvert, *pitch, *resample;
+  //GstElement *audioconvert, *pitch, *resample;
+  GstElement *seek_element;
   GstPad *bin_srcpad;  // ghost pad associated with the sample
-  GstPad *resample_srcpad;
+  //GstPad *resample_srcpad;
   Group *group; // group to which the sample belongs
 } Sample;
 
@@ -65,7 +66,7 @@ unlink_pad (GstPad *pad)
   if (GST_IS_PAD (peerpad))
     {
       GstElement *peerpadparent = gst_pad_get_parent_element (peerpad);  
-      gst_pad_unlink (pad, peerpad);  
+      g_print ("unlink returns %d\n",gst_pad_unlink (pad, peerpad));  
       // give back the pad     
       gst_element_release_request_pad (peerpadparent, peerpad);  
       gst_object_unref (peerpad);  
@@ -169,7 +170,6 @@ leave(int sig) {
   gst_element_set_state (pipeline, GST_STATE_NULL);
   g_print ("Deleting pipeline\n");
   gst_object_unref (GST_OBJECT (pipeline));
-  g_rand_free (randomGen);
   exit(sig);
 }
 
@@ -227,16 +227,30 @@ group_link_datastream (gpointer key, gpointer value, gpointer user_data)
       g_print (".....................oups, already linked \n");
     }
 
-  GstPad *peerpad = gst_element_get_compatible_pad (group->mixer,sample->bin_srcpad,NULL);
+  GstPad *peerpad;
+  peerpad = gst_element_get_compatible_pad (group->audiomixer,sample->bin_srcpad,NULL);
   //g_print("is pad: %d %d\n",GST_IS_PAD(sample->bin_srcpad), GST_IS_PAD (peerpad));
-  gst_pad_link (sample->bin_srcpad, peerpad);
-  gst_object_unref (peerpad);
-
-  if (!gst_pad_is_linked (sample->bin_srcpad))
+  if (!GST_IS_PAD (peerpad))
     {
-      g_print (".....................oups, link did not worked \n");
+      	
+      //trying video
+      if (!GST_IS_PAD (sample->bin_srcpad))
+	{
+	  sample->bin_srcpad = gst_element_get_compatible_pad (group->videomixer,sample->bin_srcpad,NULL);
+	}
+      peerpad = gst_element_get_compatible_pad (group->videomixer,sample->bin_srcpad,NULL);
     }
-    
+  
+  if (GST_IS_PAD (peerpad))
+    {
+      g_print ("pad_link: %d \n",gst_pad_link (sample->bin_srcpad, peerpad));
+      gst_object_unref (peerpad);
+      if (!gst_pad_is_linked (sample->bin_srcpad))
+	{
+	  g_print (".....................oups, link did not worked \n");
+	}
+    }
+   
 }
 
 
@@ -374,7 +388,7 @@ pad_blocked_cb (GstPad *pad, gboolean blocked, gpointer user_data)
       group_unlink_datastream ((gpointer)sample,NULL,NULL);
       //g_print ("pad blocked and unlinked\n");
       g_print ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX pad_blocked_cb %p\n",pad);
-        group_try_change_state (sample->group);
+      group_try_change_state (sample->group);
     }
   else
     g_print ("xxxxxxxxxxxxxxxxxxxxx pad unblocked\n");
@@ -450,7 +464,6 @@ group_play_wrapped_for_commands (gpointer user_data, gpointer user_data2)
 
 gboolean    
 group_play (Group *group){   
-
 
   g_print ("trying to play state %d, queue lenth %d\n",group->state, g_async_queue_length (group->numTasks));
 
@@ -535,6 +548,8 @@ void uridecodebin_drained_cb (GstElement* object, gpointer user_data)
 void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_data)   
 {   
   Group *group = (Group *) user_data;   
+
+  //gst_element_set_state (object, GST_STATE_PAUSED);
   
   const gchar *padname= gst_structure_get_name (gst_caps_get_structure(gst_pad_get_caps (pad),0));
   
@@ -548,26 +563,29 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       //probing eos for cleaning   
       //gst_pad_add_event_probe (pad, (GCallback) event_probe_cb, (gpointer)sample->group);   
       
-      sample->audioconvert = gst_element_factory_make ("audioconvert",NULL);   
-      sample->pitch = gst_element_factory_make ("pitch",NULL);   
-      sample->resample = gst_element_factory_make ("audioresample",NULL);   
-      g_object_set (G_OBJECT (sample->resample), "quality", 10 , NULL);  
-      g_object_set (G_OBJECT (sample->resample), "filter-length", 2048 , NULL); 
+      GstElement *audioconvert = gst_element_factory_make ("audioconvert",NULL);   
+      GstElement *pitch = gst_element_factory_make ("pitch",NULL);   
+      GstElement *resample = gst_element_factory_make ("audioresample",NULL);   
+      sample->seek_element = resample;
+      g_object_set (G_OBJECT (resample), "quality", 10 , NULL);  
+      g_object_set (G_OBJECT (resample), "filter-length", 2048 , NULL); 
 
       /* add to the bin */   
-      gst_bin_add (GST_BIN (group->bin), sample->audioconvert);   
-      gst_bin_add (GST_BIN (group->bin), sample->pitch);   
-      gst_bin_add (GST_BIN (group->bin), sample->resample);   
+      gst_bin_add (GST_BIN (group->bin), audioconvert);   
+      gst_bin_add (GST_BIN (group->bin), pitch);   
+      gst_bin_add (GST_BIN (group->bin), resample);   
 
-      if (!gst_element_sync_state_with_parent (sample->audioconvert))      
+      if (!gst_element_sync_state_with_parent (audioconvert))      
 	g_error ("pb syncing audio datastream state\n");      
-      if (!gst_element_sync_state_with_parent (sample->pitch))      
+      if (!gst_element_sync_state_with_parent (pitch))      
 	g_error ("pb syncing audio datastream state\n");      
-      if (!gst_element_sync_state_with_parent (sample->resample))      
+      if (!gst_element_sync_state_with_parent (resample))      
 	g_error ("pb syncing audio datastream state\n");      
       
-      sample->resample_srcpad = gst_element_get_static_pad (sample->resample, "src");
-      sample->bin_srcpad = gst_ghost_pad_new (NULL, sample->resample_srcpad); 
+      GstPad *resample_srcpad = gst_element_get_static_pad (resample, "src");
+      sample->bin_srcpad = gst_ghost_pad_new (NULL, resample_srcpad);
+      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);
+      gst_object_unref (resample_srcpad);
       gst_pad_set_active(sample->bin_srcpad,TRUE);
       gst_element_add_pad (group->bin, sample->bin_srcpad);    
       if (group->masterpad == NULL)
@@ -579,17 +597,15 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       gst_pad_add_event_probe (sample->bin_srcpad, (GCallback) event_probe_cb, (gpointer)sample);   
       
 
-      GstPad *audioconvert_sinkpad = gst_element_get_static_pad (sample->audioconvert, "sink");
+      GstPad *audioconvert_sinkpad = gst_element_get_static_pad (audioconvert, "sink");
       
       //linking newly created pad with the audioconvert_sinkpad -- FIXME should verify compatibility     
       gst_pad_link (pad, audioconvert_sinkpad);   
       gst_object_unref (audioconvert_sinkpad);
-      gst_element_link_many (sample->audioconvert, sample->pitch, sample->resample,NULL);   
+      gst_element_link_many (audioconvert, pitch, resample,NULL);   
 
       //g_print ("%s\n",gst_object_get_name(GST_OBJECT_CAST(object)));
-      
-      
-      
+            
       //assuming object is an uridecodebin and get the uri 
        gchar *uri; 
        g_object_get (object,"uri",&uri,NULL); 
@@ -597,7 +613,79 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       //adding sample to hash table
        g_hash_table_insert (group->datastreams,sample,uri); //FIXME clean hash 
       
-      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);
+    }
+  else if (g_str_has_prefix (padname, "video/"))
+    {
+
+        group_add_task (NULL,NULL,group);  
+        Sample *sample = g_new0 (Sample,1);  
+        sample->group = group;  
+      
+        GstElement *queue = gst_element_factory_make ("queue",NULL);  
+        sample->seek_element = queue;  
+
+       
+
+        /* add to the bin */     
+        gst_bin_add (GST_BIN (group->bin), queue);     
+
+         GstPad *queue_srcpad = gst_element_get_static_pad (queue, "src");   
+       
+       	sample->bin_srcpad = gst_ghost_pad_new (NULL, queue_srcpad);     
+       	gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);     
+       	gst_object_unref (queue_srcpad);     
+       	gst_pad_set_active(sample->bin_srcpad,TRUE);     
+       	gst_element_add_pad (group->bin, sample->bin_srcpad);         
+       	if (group->masterpad == NULL)     
+       	  {     
+       	    g_print ("---------------- masterpad is %p\n",sample->bin_srcpad);     
+       	    group->masterpad = sample->bin_srcpad;     
+       	  }     
+	
+       	//probing eos        
+       	gst_pad_add_event_probe (sample->bin_srcpad, (GCallback) event_probe_cb, (gpointer)sample);        
+	
+        GstPad *queue_sinkpad = gst_element_get_static_pad (queue, "sink");  
+      
+        //linking newly created pad with the audioconvert_sinkpad -- FIXME should verify compatibility       
+        gst_pad_link (pad, queue_sinkpad);     
+        gst_object_unref (queue_sinkpad);  
+
+       if (!gst_element_sync_state_with_parent (queue))        
+       	g_error ("pb syncing video datastream state\n");      
+
+         //assuming object is an uridecodebin and get the uri    
+          gchar *uri;    
+          g_object_get (object,"uri",&uri,NULL);    
+          g_print ("new sample -- uri: %s\n",uri);    
+         //adding sample to hash table   
+          g_hash_table_insert (group->datastreams,sample,uri); //FIXME clean hash    
+      
+
+          //funnel and xvimage sink is a hack, and work only with one video in the group   
+          // should be done with a callback   
+          GstElement *funnel = gst_element_factory_make ("funnel",NULL);   
+
+       	 //GstElement *timeoverlay = gst_element_factory_make ("timeoverlay",NULL);   
+          GstElement *xvimagesink = gst_element_factory_make ("xvimagesink",NULL);   
+       	 //g_object_set (G_OBJECT (xvimagesink), "sync", FALSE , NULL);    
+
+          gst_bin_add_many (GST_BIN (group->pipeline), 
+       			   funnel,  
+       			   //timeoverlay, 
+       			   xvimagesink,NULL);   
+          if (!gst_element_sync_state_with_parent (funnel))         
+          	 g_error ("pb syncing funnel state\n");       
+          /* if (!gst_element_sync_state_with_parent (timeoverlay))         */ 
+          /* 	 g_error ("pb syncing timeoverlay state\n");       */ 
+          if (!gst_element_sync_state_with_parent (xvimagesink))          
+       	   g_error ("pb syncing video datastream state\n");    
+	 
+       	 group->videomixer = funnel;  
+       	 gst_element_link_many (funnel, 
+       				//timeoverlay, 
+       				xvimagesink,NULL);      
+    
     }
   else
     {
@@ -659,19 +747,20 @@ group_add_uri (Group* group, const char *uri)
    		    "drained",  
    		    (GCallback) uridecodebin_drained_cb ,  
    		    (gpointer) group);      
-  g_object_set (G_OBJECT (src), 
-		"ring-buffer-max-size",(guint64)20000000,
-		//"download",TRUE,
-		"use-buffering",TRUE,
-		"async-handling",TRUE,
-		"buffer-duration",372036854775807,
-		NULL);
+   g_object_set (G_OBJECT (src),  
+   		"ring-buffer-max-size",(guint64)200000000, 
+   		"download",TRUE, 
+   		"use-buffering",TRUE, 
+   		"async-handling",TRUE, 
+   		"buffer-duration",9223372036854775807, 
+   		NULL); 
   g_object_set (G_OBJECT (src), "uri",   
     		uri, NULL);  
 
   gst_bin_add (GST_BIN (group->bin), src);
-  gst_element_set_state (src, GST_STATE_PLAYING);
-
+  //gst_element_set_state (src, GST_STATE_PLAYING);
+  if (!gst_element_sync_state_with_parent (src))  
+    g_error ("add_uri: pb sync uridecodebin state with parent\n");  
 } 
 
 
@@ -685,7 +774,7 @@ group_add_uri (Group* group, const char *uri)
 /* } */
 
 static Group *   
-group_create (GstElement *pipeline, GstElement *mixer)   
+group_create (GstElement *pipeline, GstElement *audiomixer)   
 {   
   Group *group;   
   g_print ("create group\n");   
@@ -693,25 +782,20 @@ group_create (GstElement *pipeline, GstElement *mixer)
   group = g_new0 (Group, 1);   
   group->commands = g_async_queue_new ();
   group->numTasks = g_async_queue_new ();
-  group->speedRatio = 1.0;   
   group->do_rewind = FALSE;
-  group->mixer = mixer;   
+  group->audiomixer = audiomixer;
   group->pipeline = pipeline;   
   group->bin = gst_element_factory_make ("bin", NULL);   
   group->masterpad = NULL;
-
-  /* GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline)); */
-  /* gst_bus_add_signal_watch (bus); //FIXME should be cleanned */
-  /* g_signal_connect (bus, "message::segment-done", G_CALLBACK (group_segment_done_cb), group); */
-  /* gst_object_unref (bus); */
-    
 
   group->datastreams = g_hash_table_new (g_direct_hash, g_direct_equal);
   //allows to add and remove to/from the pipeline without disposing   
   //unref done in the group_remove function   
   gst_object_ref (group->bin);   
   gst_bin_add (GST_BIN (group->pipeline), group->bin);   
-  gst_element_set_state (group->bin,GST_STATE_READY); 
+  //gst_element_set_state (group->bin,GST_STATE_READY); 
+  if (!gst_element_sync_state_with_parent (group->bin)) 
+    g_error ("create_group: pb sync bin state with parent\n"); 
 
   g_print ("group create: GROUP_PAUSED\n");
   group->state = GROUP_PAUSED;    
@@ -725,14 +809,14 @@ group_do_seek_datastream (Sample *sample)
   g_print ("--------------: going to seek for a sample\n");
   
   gboolean ret;
-  ret = gst_element_seek (sample->resample, 
+  ret = gst_element_seek (sample->seek_element, 
    			  1.0, 
 			  GST_FORMAT_TIME, 
 			  GST_SEEK_FLAG_FLUSH
-			  | GST_SEEK_FLAG_SKIP
-			  | GST_SEEK_FLAG_ACCURATE, 
+			  //| GST_SEEK_FLAG_SKIP
+			  | GST_SEEK_FLAG_KEY_UNIT, 
 			  GST_SEEK_TYPE_SET, 
-			  310.0 * GST_SECOND, 
+			  0,//.0 * GST_SECOND, 
 			  GST_SEEK_TYPE_NONE, 
 			  GST_CLOCK_TIME_NONE); 
   if (!ret)
@@ -746,7 +830,7 @@ group_do_seek_datastream (Sample *sample)
   /*     g_print ("going to seek a not blocked pad! and unlinked pad\n"); */
   /*   } */
   
-  gst_element_get_state (sample->resample,  
+  gst_element_get_state (sample->seek_element,  
     			 NULL,  
     			 NULL,  
     			 GST_CLOCK_TIME_NONE);  
@@ -826,29 +910,46 @@ group_seek (Group *group)
 }
 
 
+gboolean
+test_play_vid (gpointer truc)
+{
+  GstElement *playbin = gst_element_factory_make ("playbin",NULL);
+  g_object_set (G_OBJECT (playbin), "uri",   
+    		"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm", NULL);  
+  
+  gst_bin_add (GST_BIN (pipeline), playbin);
+  //gst_element_set_state (src, GST_STATE_PLAYING);
+  if (!gst_element_sync_state_with_parent (playbin))  
+    g_error ("pb sync playbin state with parent\n");  
+    
+  return FALSE;
+}
+
+
 static gboolean
 run_test ()
 {
   g_print ("adding a new group\n");
+  
+  Group *group1 = group_create (pipeline,audiomixer);
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");    */
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");    */
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");    */
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");    */
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");    */
+  /* group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");    */
+  /* // group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.mp4");  */
 
-  Group *group1 = group_create (pipeline,mixer);
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg"); 
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg"); 
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg"); 
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg"); 
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg"); 
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg"); 
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");   
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");   
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");   
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");   
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");   
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");   
 
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg"); */
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg"); */
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg"); */
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg"); */
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg"); */
-  /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg"); */
+     group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");   
 
-  //   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm"); 
-
-     /* Group *group2 = group_create (pipeline,mixer);      */
+     /* Group *group2 = group_create (pipeline,audiomixer);      */
      /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");      */
      /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");      */
   
@@ -860,31 +961,33 @@ run_test ()
      /* group_play (group2);   */
 
 
-  group_play (group1);
+  //group_play (group1);
 
-  group_seek (group1);
+  //group_seek (group1);
   
-
+    //    g_timeout_add (15000, (GSourceFunc) test_play_vid, NULL);   
   
-   group_pause (group1);  
+  //group_pause (group1);  
 
-   g_timeout_add (2000, (GSourceFunc) group_play, group1);   
+  g_timeout_add (10000, (GSourceFunc) group_play, group1);   
  
-  g_timeout_add (3000, (GSourceFunc) group_seek, group1);
+  //g_timeout_add (15000, (GSourceFunc) group_seek, group1);
 
-  g_timeout_add (8000, (GSourceFunc) group_pause, group1);
+  //g_timeout_add (8000, (GSourceFunc) group_pause, group1); 
  
-  g_timeout_add (10000, (GSourceFunc) group_play, group1);  
+  //g_timeout_add (10000, (GSourceFunc) group_play, group1);   
 
-  g_timeout_add (11000, (GSourceFunc) group_pause, group1);  
+  /* g_timeout_add (11000, (GSourceFunc) group_pause, group1);   */
 
-  g_timeout_add (11500, (GSourceFunc) group_seek, group1);
+  /* //g_timeout_add (11500, (GSourceFunc) group_seek, group1); */
   
-   g_timeout_add (12000, (GSourceFunc) group_play, group1);    
+  /*  g_timeout_add (12000, (GSourceFunc) group_play, group1);     */
   /* g_timeout_add (30000, (GSourceFunc) group_play, group1);   */
 
-
-  return TRUE;
+  //do not repeat
+  return FALSE;
+  //do repeat
+  //return TRUE;
 }
 
 
@@ -893,9 +996,6 @@ main (int argc,
       char *argv[])
 {
   (void) signal(SIGINT,leave);
-    
-  randomGen = g_rand_new ();
-
     
   /* Initialisation */
   gst_init (&argc, &argv);
@@ -914,20 +1014,29 @@ main (int argc,
   GstElement *audiosink = gst_element_factory_make ("pulsesink", NULL);
   //g_object_set (G_OBJECT (audiosink), "sync", FALSE , NULL);  
   
-  mixer = gst_element_factory_make ("adder",NULL);
+
+  audiomixer = gst_element_factory_make ("adder",NULL);
+
+  GstElement *identity = gst_element_factory_make ("identity",NULL);
+  //g_object_set (G_OBJECT (identity), "single-segment", TRUE , NULL);   
+  g_object_set (G_OBJECT (identity), "datarate", 4 * 48000 , NULL);   
+
   GstElement *zeroAudio = gst_element_factory_make ("audiotestsrc",NULL);
   g_object_set (G_OBJECT (zeroAudio), "volume", 0.0 , NULL);  
   
-  gst_bin_add_many (GST_BIN (pipeline),
-		    zeroAudio,
-		    mixer,
-		    audiosink,	   
-		    NULL);
+   gst_bin_add_many (GST_BIN (pipeline),
+		     zeroAudio,
+		     audiomixer,
+		     identity,
+		     audiosink,	   
+		     NULL);
 
   gst_element_link_many (zeroAudio,
-			 mixer,
+			 audiomixer,
+			 identity,
 			 audiosink,	   
 			 NULL);
+  
     
   /* message handler */
   GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline)); 
@@ -935,11 +1044,12 @@ main (int argc,
   gst_object_unref (bus); 
 
     
-  // request periodically
-  //g_timeout_add (14000, (GSourceFunc) run_test, NULL);
-    
-  //request once
-  run_test ();
+  // delay request 
+  g_timeout_add (1000, (GSourceFunc) run_test, NULL);
+
+  //request now
+  //run_test ();
+
 
   /* Set the pipeline to "playing" state*/
   g_print ("Now playing pipeline\n");
@@ -952,6 +1062,7 @@ main (int argc,
   /*     g_print ("Seek failed!\n"); */
   /*   } */
 
+
   /* Iterate */
   g_print ("Pipeline running...\n");
   g_main_loop_run (loop);
@@ -962,8 +1073,6 @@ main (int argc,
 
   g_print ("Deleting pipeline\n");
   gst_object_unref (GST_OBJECT (pipeline));
-
-  g_rand_free (randomGen);
 
   return 0;
 }
