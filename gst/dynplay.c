@@ -20,11 +20,11 @@ typedef struct
   GroupState state;
   GHashTable *datastreams; 
   GAsyncQueue *commands;
-  gboolean do_rewind;
   GstPad *masterpad; //pad of the sample that determine end of play
   // a thread safe counter of task to do before actually going to a state
   // and unlocking new command
   GAsyncQueue *numTasks; 
+  gboolean isseeking;
 } Group;
 
 typedef struct 
@@ -139,7 +139,6 @@ event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
 	// this seems not working if play rate >1.0
 
 	g_print ("!!! masterpad\n");  
-	//sample->group->do_rewind = TRUE;
 	
 	/* sample->group->state = GROUP_TO_PAUSED;  */
 	/* g_hash_table_foreach (sample->group->datastreams,(GHFunc)group_add_task,sample->group); */
@@ -264,8 +263,8 @@ group_link_datastream (gpointer key, gpointer value, gpointer user_data)
        	{ 
        	  sample->bin_srcpad = gst_element_get_compatible_pad (group->videomixer,sample->bin_srcpad,NULL); 
        	} 
-       peerpad = gst_element_get_compatible_pad (group->videomixer,sample->bin_srcpad,NULL); 
-      
+       peerpad = gst_element_get_compatible_pad (group->videomixer,sample->bin_srcpad,NULL);
+
     }
   
   if (GST_IS_PAD (peerpad))
@@ -279,9 +278,6 @@ group_link_datastream (gpointer key, gpointer value, gpointer user_data)
 	  g_print (".....................oups, link did not worked \n");
 	}
     }
-  
-    
-   
   
 }
 
@@ -791,7 +787,6 @@ group_create (GstElement *pipeline, GstElement *audiomixer)
   group = g_new0 (Group, 1);   
   group->commands = g_async_queue_new ();
   group->numTasks = g_async_queue_new ();
-  group->do_rewind = FALSE;
   group->audiomixer = audiomixer;
   group->pipeline = pipeline;   
   group->bin = gst_element_factory_make ("bin", NULL);
@@ -942,14 +937,14 @@ run_test ()
 {
   g_print ("adding a new group\n");
   
-  Group *group1 = group_create (pipeline,audiomixer);
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");    
-   group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");  
+   Group *group1 = group_create (pipeline,audiomixer); 
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");     
+    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");   
 
       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");      */
       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");      */
@@ -960,22 +955,22 @@ run_test ()
 
       /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");     */
 
-   Group *group2 = group_create (pipeline,audiomixer);      
-   group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");      
-   group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");      
+   /* Group *group2 = group_create (pipeline,audiomixer);       */
+   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");        */
+   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");        */
    
-   group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");      
+   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");        */
    
-   group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");      
-   group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");      
+   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");        */
+   //  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");      
    
    /* //g_timeout_add (1000, (GSourceFunc) group_play, group2);    */
-     /* group_play (group2);   */
+    //      group_play (group2);   
 
 
    group_play (group1);
 
-  //group_seek (group1);
+  group_seek (group1);
   
     //    g_timeout_add (15000, (GSourceFunc) test_play_vid, NULL);   
   
@@ -985,15 +980,20 @@ run_test ()
  
   //g_timeout_add (15000, (GSourceFunc) group_seek, group1);
 
-   g_timeout_add (8000, (GSourceFunc) group_pause, group1);  
+   /* g_timeout_add (8000, (GSourceFunc) group_pause, group1);   */
  
-   g_timeout_add (10000, (GSourceFunc) group_play, group2);    
+   /* g_timeout_add (10000, (GSourceFunc) group_play, group1);     */
 
-  /*  g_timeout_add (19000, (GSourceFunc) group_pause, group1);  */
+   /* g_timeout_add (12000, (GSourceFunc) group_pause, group1);   */
+ 
+   /* g_timeout_add (14000, (GSourceFunc) group_play, group1);     */
 
-  /* //g_timeout_add (11500, (GSourceFunc) group_seek, group1); */
-  
-  /*  g_timeout_add (12000, (GSourceFunc) group_play, group1);     */
+   /* g_timeout_add (15000, (GSourceFunc) group_seek, group1);  */
+   
+   /* g_timeout_add (19000, (GSourceFunc) group_pause, group1);   */
+      
+   /* g_timeout_add (25000, (GSourceFunc) group_play, group1);      */
+
   /* g_timeout_add (30000, (GSourceFunc) group_play, group1);   */
 
   //do not repeat
@@ -1063,33 +1063,34 @@ main (int argc,
    
     
    
-    /* GstElement *videotestsrc = gst_element_factory_make ("videotestsrc",NULL);     */
-    /* GstCaps *vcaps = gst_caps_new_simple ("video/x-raw-yuv",   */
-    /* 					 "format", GST_TYPE_FOURCC, GST_MAKE_FOURCC ('I', '4', '2', '0'),  */
-    /* 					 "width", G_TYPE_INT, 1280,  */
-    /* 					 "height", G_TYPE_INT, 720,  */
-    /* 					 "framerate", GST_TYPE_FRACTION, 10000000, 333667,  */
-    /* 					 "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1,  */
-    /* 					 "interlaced",G_TYPE_BOOLEAN,FALSE,  */
-    /* 					 NULL);   */
-    /* GstElement *vcapsfilter = gst_element_factory_make ("capsfilter",NULL);   */
-    /* g_object_set (G_OBJECT (vcapsfilter), "caps", vcaps , NULL);     */
+   GstElement *videotestsrc = gst_element_factory_make ("videotestsrc",NULL);     
+   g_object_set (G_OBJECT(videotestsrc), "pattern",2,NULL);
+   GstCaps *vcaps = gst_caps_new_simple ("video/x-raw-yuv",   
+     					 "format", GST_TYPE_FOURCC, GST_MAKE_FOURCC ('I', '4', '2', '0'),  
+     					 "width", G_TYPE_INT, 1280,  
+     					 "height", G_TYPE_INT, 720,  
+     					 "framerate", GST_TYPE_FRACTION, 10000000, 333667,  
+     					 "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1,  
+     					 "interlaced",G_TYPE_BOOLEAN,FALSE,  
+     					 NULL);   
+   GstElement *vcapsfilter = gst_element_factory_make ("capsfilter",NULL);   
+   g_object_set (G_OBJECT (vcapsfilter), "caps", vcaps , NULL);     
    
-
-   inputselector = gst_element_factory_make ("input-selector",NULL);   
+   
+   inputselector = gst_element_factory_make ("videomixer",NULL);   
    //g_object_set (G_OBJECT (inputselector), "sync-streams", TRUE , NULL);   
-
+   
 
    GstElement *xvimagesink = gst_element_factory_make ("xvimagesink",NULL);   
    
    gst_bin_add_many (GST_BIN (pipeline), 
-		     /* videotestsrc, */
-		     /* vcapsfilter, */
+		      videotestsrc, 
+		      vcapsfilter, 
 		     inputselector,
 		     xvimagesink,NULL);   
    
-   gst_element_link_many (/* videotestsrc, */
-			  /* vcapsfilter, */
+   gst_element_link_many ( videotestsrc, 
+			   vcapsfilter, 
 			  inputselector, 
 			  xvimagesink,NULL);      
    
@@ -1111,12 +1112,12 @@ main (int argc,
   g_print ("Now playing pipeline\n");
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
-  /* if (!gst_element_seek (pipeline, 0.6, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH, */
-  /*                        GST_SEEK_TYPE_SET, 0, */
-  /*                        GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE))  */
-  /*   { */
-  /*     g_print ("Seek failed!\n"); */
-  /*   } */
+   /* if (!gst_element_seek (pipeline, 0.6, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,  */
+   /*                        GST_SEEK_TYPE_SET, 0,  */
+   /*                        GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE))   */
+   /*   {  */
+   /*     g_print ("Seek failed!\n");  */
+   /*   }  */
 
 
   /* Iterate */
