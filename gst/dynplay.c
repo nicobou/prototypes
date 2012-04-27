@@ -24,7 +24,7 @@ typedef struct
   // a thread safe counter of task to do before actually going to a state
   // and unlocking new command
   GAsyncQueue *numTasks; 
-  gboolean isseeking;
+  GHashTable *padtoblock; 
 } Group;
 
 typedef struct 
@@ -50,7 +50,7 @@ gboolean group_pause (Group *group);
 void group_do_group_seek (Group *group);
 void group_unlink_datastream (gpointer key, gpointer value, gpointer user_data);
 void pad_blocked_cb (GstPad *pad, gboolean blocked, gpointer user_data);
-void group_block_datastream (gpointer key, gpointer value, gpointer user_data);
+void group_block_datastream_wrapped_for_hash (gpointer key, gpointer value, gpointer user_data);
 void group_seek_datastream (gpointer key, gpointer value, gpointer user_data);
 void group_add_task (gpointer key, gpointer value, gpointer user_data);
 
@@ -84,7 +84,7 @@ group_eos_rewind (Group *group)
   group->state = GROUP_TO_PAUSED; 
   g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
   g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
-  g_hash_table_foreach (group->datastreams,(GHFunc)group_block_datastream,NULL);
+  g_hash_table_foreach (group->datastreams,(GHFunc)group_block_datastream_wrapped_for_hash,NULL);
   g_hash_table_foreach (group->datastreams,(GHFunc)group_seek_datastream,NULL);
   group_play (group);	     
   return FALSE;
@@ -125,14 +125,12 @@ event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
 
 
     if (sample->group->state != GROUP_PLAYING)
-      g_print ("OMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMG %p\n",&(sample->group->state));
-
+      {
+	g_print ("OMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMGOMG %p\n",&(sample->group->state));
+      }
     group_unlink_datastream ((gpointer)sample,NULL,NULL);   
     
-    /* if (!gst_pad_is_blocked (pad)) */
-    /*   if (!gst_pad_set_blocked_async (pad,TRUE,(GstPadBlockCallback)pad_blocked_cb,sample))  */
-    /* 	g_print ("EOS: pb blocking\n");  */
-  
+    
     
     if (pad == sample->group->masterpad)  
       {  
@@ -140,45 +138,10 @@ event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
 
 	g_print ("!!! masterpad\n");  
 	
-	/* sample->group->state = GROUP_TO_PAUSED;  */
-	/* g_hash_table_foreach (sample->group->datastreams,(GHFunc)group_add_task,sample->group); */
-	/* g_hash_table_foreach (sample->group->datastreams,(GHFunc)group_add_task,sample->group); */
-	/* g_hash_table_foreach (sample->group->datastreams,(GHFunc)group_block_datastream,NULL); */
-	/* g_hash_table_foreach (sample->group->datastreams,(GHFunc)group_seek_datastream,NULL); */
-	/* group_play (sample->group); */
-
 	  g_idle_add ((GSourceFunc) group_eos_rewind,   
 	  	    (gpointer)sample->group);   
-
-	 
-	 /* gst_pad_send_event (pad,        			         */
-	 /* 		     gst_event_new_seek (1.0,            */
-	 /* 					 GST_FORMAT_TIME,            */
-	 /* 					 GST_SEEK_FLAG_FLUSH            */
-	 /* 					 | GST_SEEK_FLAG_ACCURATE,            */
-	 /* 					 GST_SEEK_TYPE_SET,            */
-	 /* 					 0.0 * GST_SECOND,            */
-	 /* 					 GST_SEEK_TYPE_NONE,            */
-	 /* 					 GST_CLOCK_TIME_NONE)           */
-	 /* 		     );           */
-	 
-     	
       } 
     
-    /* gst_pad_send_event (pad,        			    */
-    /* 			   gst_event_new_seek (1.0,       */
-    /* 					       GST_FORMAT_TIME,       */
-    /* 					       GST_SEEK_FLAG_FLUSH       */
-    /* 					       | GST_SEEK_FLAG_ACCURATE,       */
-    /* 					       GST_SEEK_TYPE_SET,       */
-    /* 					       0.0 * GST_SECOND,       */
-    /* 					       GST_SEEK_TYPE_NONE,       */
-    /* 					       GST_CLOCK_TIME_NONE)      */
-       /* 			   );      */
-    
-    
-    
-       //g_print ("return FALSE\n");
     return FALSE; 
   }
   
@@ -413,16 +376,20 @@ pad_blocked_cb (GstPad *pad, gboolean blocked, gpointer user_data)
 
   if (blocked)
     {
-
-      
-      group_unlink_datastream ((gpointer)sample,NULL,NULL);
-      //g_print ("pad blocked and unlinked\n");
-      g_print ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX pad_blocked_cb %p\n",pad);
-      group_try_change_state (sample->group);
+      //unlinking and changing state only if expected
+      //this is done this way because this callback is sometime called twice
+      if (g_hash_table_remove (sample->group->padtoblock,sample->bin_srcpad))
+	{
+	  group_unlink_datastream ((gpointer)sample,NULL,NULL);
+	  //g_print ("pad blocked and unlinked\n");
+	  g_print ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX pad_blocked_cb %p\n",pad);
+	  group_try_change_state (sample->group);
+	}
+      else
+	g_print ("pad_blocked_cb: cannot remove from hash pad to block %p\n",sample->bin_srcpad);
     }
   else
-    g_print ("xxxxxxxxxxxxxxxxxxxxx pad unblocked\n");
-    
+    g_print ("xxxxxxxxxxxxxxxxxxxxx pad unblocked %p\n",pad);
 
 }
 
@@ -432,11 +399,13 @@ group_unblock_datastream (gpointer key, gpointer value, gpointer user_data)
   Sample *sample = (Sample *) key;
   Group *group = (Group *) user_data;
   
-  g_print ("group_unblock_datastream\n");
+  g_print ("group_unblock_datastream %p\n",sample->bin_srcpad);
  
   if (!gst_pad_is_blocked (sample->bin_srcpad) || !gst_pad_is_linked (sample->bin_srcpad))
-    g_print ("ARGARGARGARTGAARATGARATAGRAGA - - trying to unblock a not blocked pad\n");
-  
+    {
+      g_print ("ARGARGARGARTGAARATGARATAGRAGA - - trying to unblock a not blocked pad %p\n",sample->bin_srcpad);
+      return;
+    }
   if (!gst_pad_set_blocked_async (sample->bin_srcpad,FALSE,(GstPadBlockCallback)pad_blocked_cb,sample))
     {
       g_print  ("play_source: pb unblocking %p\n",sample->bin_srcpad);
@@ -446,18 +415,33 @@ group_unblock_datastream (gpointer key, gpointer value, gpointer user_data)
 }
 
 void
-group_block_datastream (gpointer key, gpointer value, gpointer user_data)
+group_do_block_datastream (Sample *sample)
+{
+  if (!gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,(GstPadBlockCallback)pad_blocked_cb,sample))
+    g_print ("play_source: pb blocking\n");
+  else
+    {
+      //keep the pad in memory for dequeueing task when necessary
+      g_hash_table_insert (sample->group->padtoblock,sample->bin_srcpad,sample->bin_srcpad);
+    }
+  
+}
+
+
+void
+group_block_datastream_wrapped_for_hash (gpointer key, gpointer value, gpointer user_data)
 {
   Sample *sample = (Sample *) key;
 
+  g_print ("group_block_datastream_wrapped_for_hash: called %p\n",sample->bin_srcpad);
+
   if (!gst_pad_is_blocked (sample->bin_srcpad))
     {
-      if (!gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,(GstPadBlockCallback)pad_blocked_cb,sample))
-	  g_print ("play_source: pb blocking\n");
+      group_do_block_datastream (sample);
     }
   else
     {
-      g_print ("not blocking unblocked pad\n");
+      g_print ("group_block_datastream_wrapped_for_hash: WARNING not blocking unblocked pad\n");
       group_try_change_state (sample->group);
     }
 }
@@ -549,7 +533,7 @@ group_pause (Group *group)
     group->state = GROUP_TO_PAUSED;
     g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
     g_print ("task added\n");
-    g_hash_table_foreach (group->datastreams,(GHFunc)group_block_datastream,NULL);
+    g_hash_table_foreach (group->datastreams,(GHFunc)group_block_datastream_wrapped_for_hash,NULL);
     break;
   case GROUP_TO_PLAYING:
     group_queue_command (group,&group_pause_wrapped_for_commands,NULL);
@@ -610,7 +594,8 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       
       GstPad *resample_srcpad = gst_element_get_static_pad (resample, "src");
       sample->bin_srcpad = gst_ghost_pad_new (NULL, resample_srcpad);
-      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);
+      group_do_block_datastream (sample);
+      //gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);
       gst_object_unref (resample_srcpad);
       gst_pad_set_active(sample->bin_srcpad,TRUE);
       gst_element_add_pad (group->bin, sample->bin_srcpad);    
@@ -656,7 +641,8 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       GstPad *queue_srcpad = gst_element_get_static_pad (queue, "src");   
       
       sample->bin_srcpad = gst_ghost_pad_new (NULL, queue_srcpad);     
-      gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);     
+      group_do_block_datastream (sample);
+      //gst_pad_set_blocked_async (sample->bin_srcpad,TRUE,pad_blocked_cb,sample);     
       gst_object_unref (queue_srcpad);     
       gst_pad_set_active(sample->bin_srcpad,TRUE);     
       gst_element_add_pad (group->bin, sample->bin_srcpad);         
@@ -795,7 +781,9 @@ group_create (GstElement *pipeline, GstElement *audiomixer)
   group->masterpad = NULL;
 
   group->datastreams = g_hash_table_new (g_direct_hash, g_direct_equal);
-  //allows to add and remove to/from the pipeline without disposing   
+  group->padtoblock = g_hash_table_new (g_direct_hash, g_direct_equal);
+  
+//allows to add and remove to/from the pipeline without disposing   
   //unref done in the group_remove function   
   gst_object_ref (group->bin);   
   gst_bin_add (GST_BIN (group->pipeline), group->bin);   
@@ -814,13 +802,18 @@ group_do_seek_datastream (Sample *sample)
   
   g_print ("--------------: going to seek for a sample\n");
   
+  //
+
+  
+
   gboolean ret;
   ret = gst_element_seek (sample->seek_element, 
-   			  1.0, 
+   			  0.5, 
 			  GST_FORMAT_TIME, 
 			  GST_SEEK_FLAG_FLUSH
+			  | GST_SEEK_FLAG_ACCURATE,
 			  //| GST_SEEK_FLAG_SKIP
-			  | GST_SEEK_FLAG_KEY_UNIT, 
+			  //| GST_SEEK_FLAG_KEY_UNIT, //using key unit is breaking synchronization
 			  GST_SEEK_TYPE_SET, 
 			  310.0 * GST_SECOND, 
 			  GST_SEEK_TYPE_NONE, 
@@ -874,6 +867,7 @@ group_do_group_seek (Group *group)
   g_print ("*********************** group_seek\n");
   group_add_task (NULL,NULL,group);
   g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);
+  //g_hash_table_foreach (group->datastreams,(GHFunc)group_add_task,group);//counting duplicated blocked signals
   g_hash_table_foreach (group->datastreams,(GHFunc)group_seek_datastream,NULL);
   group_try_change_state (group);
 }
@@ -938,39 +932,39 @@ run_test ()
   g_print ("adding a new group\n");
   
    Group *group1 = group_create (pipeline,audiomixer); 
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");     
-    group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");   
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");      
+     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");    
 
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");      */
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");      */
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");      */
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");      */
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");      */
-      /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");      */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");       */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");       */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");       */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");       */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");       */
+       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");       */
 
-      /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");     */
+       /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");      */
 
-   /* Group *group2 = group_create (pipeline,audiomixer);       */
-   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");        */
-   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");        */
-   
-   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");        */
-   
-   /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");        */
-   //  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");      
+     Group *group2 = group_create (pipeline,audiomixer);       
+     /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");        */
+     /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Harpsichord.ogg ");        */
+     
+     /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");        */
+     
+     /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");        */
+     group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");      
    
    /* //g_timeout_add (1000, (GSourceFunc) group_play, group2);    */
     //      group_play (group2);   
 
 
-   group_play (group1);
+   group_play (group2);
 
-  group_seek (group1);
+   //  group_seek (group1);
   
     //    g_timeout_add (15000, (GSourceFunc) test_play_vid, NULL);   
   
@@ -980,15 +974,15 @@ run_test ()
  
   //g_timeout_add (15000, (GSourceFunc) group_seek, group1);
 
-   /* g_timeout_add (8000, (GSourceFunc) group_pause, group1);   */
+   g_timeout_add (8000, (GSourceFunc) group_pause, group2);   
  
-   /* g_timeout_add (10000, (GSourceFunc) group_play, group1);     */
-
-   /* g_timeout_add (12000, (GSourceFunc) group_pause, group1);   */
- 
-   /* g_timeout_add (14000, (GSourceFunc) group_play, group1);     */
-
-   /* g_timeout_add (15000, (GSourceFunc) group_seek, group1);  */
+   g_timeout_add (10000, (GSourceFunc) group_play, group2);     
+   
+   g_timeout_add (12000, (GSourceFunc) group_pause, group2);   
+   
+   g_timeout_add (14000, (GSourceFunc) group_play, group1);     
+   
+   g_timeout_add (15000, (GSourceFunc) group_seek, group1);
    
    /* g_timeout_add (19000, (GSourceFunc) group_pause, group1);   */
       
@@ -1112,12 +1106,12 @@ main (int argc,
   g_print ("Now playing pipeline\n");
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
-   /* if (!gst_element_seek (pipeline, 0.6, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,  */
-   /*                        GST_SEEK_TYPE_SET, 0,  */
-   /*                        GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE))   */
-   /*   {  */
-   /*     g_print ("Seek failed!\n");  */
-   /*   }  */
+    if (!gst_element_seek (pipeline, 0.5, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,  
+                           GST_SEEK_TYPE_SET, 0,  
+                           GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE))   
+      {  
+        g_print ("Seek failed!\n");  
+      }  
 
 
   /* Iterate */
