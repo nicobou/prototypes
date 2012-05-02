@@ -92,26 +92,26 @@ group_eos_rewind (Group *group)
 
 
 
-static gboolean
-buffer_probe_cb (GstPad *pad, GstBuffer *buffer, gpointer data)
-{
-  //g_print("%llu \n", GST_TIME_AS_MSECONDS(GST_BUFFER_TIMESTAMP (buffer)) );
+/* static gboolean */
+/* buffer_probe_cb (GstPad *pad, GstBuffer *buffer, gpointer data) */
+/* { */
+/*   //g_print("%llu \n", GST_TIME_AS_MSECONDS(GST_BUFFER_TIMESTAMP (buffer)) ); */
   
-  Sample *sample = (Sample *)data;
+/*   Sample *sample = (Sample *)data; */
 
-  if ( GST_BUFFER_TIMESTAMP (buffer) == 0)
-    {
-      g_print ("WINWIWNWIWNIWNIWNIWNIW\n");
-      GstClock *clock = gst_pipeline_get_clock (GST_PIPELINE (sample->group->pipeline));
-      sample->timeshift =  gst_clock_get_time (clock) - gst_element_get_start_time (sample->group->pipeline);
-      g_print("%llu \n", GST_TIME_AS_MSECONDS(sample->timeshift) );
-      gst_object_unref (clock);     
-    }
+/*   if ( GST_BUFFER_TIMESTAMP (buffer) == 0) */
+/*     { */
+/*       g_print ("WINWIWNWIWNIWNIWNIWNIW\n"); */
+/*       GstClock *clock = gst_pipeline_get_clock (GST_PIPELINE (sample->group->pipeline)); */
+/*       sample->timeshift =  gst_clock_get_time (clock) - gst_element_get_start_time (sample->group->pipeline); */
+/*       g_print("%llu \n", GST_TIME_AS_MSECONDS(sample->timeshift) ); */
+/*       gst_object_unref (clock);      */
+/*     } */
   
-  GST_BUFFER_TIMESTAMP (buffer) = GST_BUFFER_TIMESTAMP (buffer) + sample->timeshift;
+/*   GST_BUFFER_TIMESTAMP (buffer) = GST_BUFFER_TIMESTAMP (buffer) + sample->timeshift; */
   
-  return TRUE;
-}
+/*   return TRUE; */
+/* } */
 
 static gboolean
 event_probe_cb (GstPad *pad, GstEvent * event, gpointer data)
@@ -802,22 +802,40 @@ group_do_seek_datastream (Sample *sample)
   
   g_print ("--------------: going to seek for a sample\n");
   
-  //
-
+  
+  GstQuery *query;
+  gboolean res;
+  query = gst_query_new_segment (GST_FORMAT_TIME);
+  res = gst_element_query (sample->group->pipeline, query);
+  gdouble rate = -2.0;
+  gint64 start_value = -2.0;
+  gint64 stop_value = -2.0;
+  if (res) {
+    gst_query_parse_segment (query, &rate, NULL, &start_value, &stop_value);
+    g_print ("rate = %f start = %"GST_TIME_FORMAT" stop = %"GST_TIME_FORMAT"\n", 
+	     rate,
+	     GST_TIME_ARGS (start_value),
+	     GST_TIME_ARGS (stop_value));
+  }
+  else {
+    g_print ("duration query failed...");
+  }
+  gst_query_unref (query);
   
 
   gboolean ret;
-  ret = gst_element_seek (sample->seek_element, 
-   			  0.5, 
-			  GST_FORMAT_TIME, 
-			  GST_SEEK_FLAG_FLUSH
-			  | GST_SEEK_FLAG_ACCURATE,
-			  //| GST_SEEK_FLAG_SKIP
-			  //| GST_SEEK_FLAG_KEY_UNIT, //using key unit is breaking synchronization
-			  GST_SEEK_TYPE_SET, 
-			  310.0 * GST_SECOND, 
-			  GST_SEEK_TYPE_NONE, 
-			  GST_CLOCK_TIME_NONE); 
+  ret = gst_element_seek (sample->seek_element,  
+    			  rate,  
+   			  GST_FORMAT_TIME,  
+   			  GST_SEEK_FLAG_FLUSH 
+   			  | GST_SEEK_FLAG_ACCURATE, 
+   			  //| GST_SEEK_FLAG_SKIP 
+   			  //| GST_SEEK_FLAG_KEY_UNIT, //using key unit is breaking synchronization 
+   			  GST_SEEK_TYPE_SET,  
+   			  310.0 * GST_SECOND,  
+   			  GST_SEEK_TYPE_NONE,  
+   			  GST_CLOCK_TIME_NONE);  
+  
   if (!ret)
     g_print ("seek not handled\n");
 
@@ -932,22 +950,22 @@ run_test ()
   g_print ("adding a new group\n");
   
    Group *group1 = group_create (pipeline,audiomixer); 
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");      
-     group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");    
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");       
+      group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");     
 
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");       */
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");       */
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");       */
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");       */
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");       */
-       /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");       */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");        */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");        */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Reverb.ogg");        */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Sax.ogg");        */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");        */
+        /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");        */
 
-       /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");      */
+        /* group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");       */
 
      Group *group2 = group_create (pipeline,audiomixer);       
      /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ambience.ogg");        */
@@ -956,7 +974,7 @@ run_test ()
      /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");        */
      
      /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");        */
-     group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");      
+     /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");       */
    
    /* //g_timeout_add (1000, (GSourceFunc) group_play, group2);    */
     //      group_play (group2);   
@@ -974,16 +992,21 @@ run_test ()
  
   //g_timeout_add (15000, (GSourceFunc) group_seek, group1);
 
-   g_timeout_add (8000, (GSourceFunc) group_pause, group2);   
+   g_timeout_add (18000, (GSourceFunc) group_pause, group2);   
  
-   g_timeout_add (10000, (GSourceFunc) group_play, group2);     
+   g_timeout_add (20000, (GSourceFunc) group_play, group2);     
    
-   g_timeout_add (12000, (GSourceFunc) group_pause, group2);   
+   g_timeout_add (22000, (GSourceFunc) group_pause, group2);   
    
-   g_timeout_add (14000, (GSourceFunc) group_play, group1);     
+   g_timeout_add (24000, (GSourceFunc) group_play, group1);     
    
-   g_timeout_add (15000, (GSourceFunc) group_seek, group1);
+   g_timeout_add (29000, (GSourceFunc) group_seek, group1);
    
+   /* g_timeout_add (35000, (GSourceFunc) group_play, group2);      */
+   
+   /* g_timeout_add (39000, (GSourceFunc) group_pause, group2);    */
+   
+
    /* g_timeout_add (19000, (GSourceFunc) group_pause, group1);   */
       
    /* g_timeout_add (25000, (GSourceFunc) group_play, group1);      */
@@ -1055,8 +1078,6 @@ main (int argc,
 			  audiosink,	    
 			  NULL); 
    
-    
-   
    GstElement *videotestsrc = gst_element_factory_make ("videotestsrc",NULL);     
    g_object_set (G_OBJECT(videotestsrc), "pattern",2,NULL);
    GstCaps *vcaps = gst_caps_new_simple ("video/x-raw-yuv",   
@@ -1073,7 +1094,6 @@ main (int argc,
    
    inputselector = gst_element_factory_make ("videomixer",NULL);   
    //g_object_set (G_OBJECT (inputselector), "sync-streams", TRUE , NULL);   
-   
 
    GstElement *xvimagesink = gst_element_factory_make ("xvimagesink",NULL);   
    
@@ -1106,13 +1126,12 @@ main (int argc,
   g_print ("Now playing pipeline\n");
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
-    if (!gst_element_seek (pipeline, 0.5, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,  
+    if (!gst_element_seek (pipeline, 1.0, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,  
                            GST_SEEK_TYPE_SET, 0,  
                            GST_SEEK_TYPE_NONE, GST_CLOCK_TIME_NONE))   
       {  
         g_print ("Seek failed!\n");  
       }  
-
 
   /* Iterate */
   g_print ("Pipeline running...\n");
