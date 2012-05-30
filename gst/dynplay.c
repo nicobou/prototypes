@@ -34,7 +34,7 @@ typedef struct
   gpointer arg;
 } GroupCommand;
 
-typedef struct
+typedef struc
 {
   //GstElement *audioconvert, *pitch, *resample;
   GstElement *seek_element;
@@ -974,7 +974,7 @@ run_test ()
      /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Orchestra.ogg ");        */
      
      /*  group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition_Ref.ogg ");        */
-     /* group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");       */
+      group_add_uri (group2,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/Movement1/Bassoon/Movement1_BassoonPosition.webm");       
    
    /* //g_timeout_add (1000, (GSourceFunc) group_play, group2);    */
     //      group_play (group2);   
