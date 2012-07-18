@@ -34,7 +34,7 @@ typedef struct
   gpointer arg;
 } GroupCommand;
 
-typedef struc
+typedef struct
 {
   //GstElement *audioconvert, *pitch, *resample;
   GstElement *seek_element;
@@ -609,7 +609,7 @@ void uridecodebin_pad_added_cb (GstElement* object, GstPad* pad, gpointer user_d
       
       GstPad *audioconvert_sinkpad = gst_element_get_static_pad (audioconvert, "sink");
       
-      //linking newly created pad with the audioconvert_sinkpad -- FIXME should verify compatibility     
+      //linking newly create pad with the audioconvert_sinkpad -- FIXME should verify compatibility     
       gst_pad_link (pad, audioconvert_sinkpad);   
       gst_object_unref (audioconvert_sinkpad);
       gst_element_link_many (audioconvert, pitch, resample,NULL);   
@@ -957,6 +957,7 @@ run_test ()
       group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trombone.ogg");       
       group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Trumpet.ogg");       
       group_add_uri (group1,"http://suizen.cim.mcgill.ca/oohttpvod/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Screen2.webm");     
+      
 
         /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Rhythm.ogg");        */
         /*  group_add_uri (group1,"file:///var/www/samples/HomeVersion/AmongThePyramids/Bass/AmongThePyramids_BassPosition_Ref.ogg");        */
