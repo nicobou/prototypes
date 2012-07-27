@@ -38,7 +38,6 @@ invoke_closure(GClosure *closure)
     g_print ("result true\n");
   else
     g_print ("result false\n");
-
 }
 
 

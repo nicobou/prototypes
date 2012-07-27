@@ -1,5 +1,9 @@
-all: sin dynplay urirec
+all: sin dynplay urirec basic decklink
 
+decklink: decklink.c
+	gcc decklink.c -o decklink `pkg-config --cflags --libs gstreamer-0.10`
+basic: basic.c
+	gcc basic.c -o basic `pkg-config --cflags --libs gstreamer-0.10`
 sin: sin.c
 	gcc sin.c -o sin `pkg-config --cflags --libs gstreamer-0.10`
 
@@ -10,4 +14,4 @@ urirec: urirec.c
 	gcc urirec.c -o urirec `pkg-config --cflags --libs gstreamer-0.10`
 
 clean:
-	rm sin dynplay urirec
+	rm sin dynplay urirec basic decklink
