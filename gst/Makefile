@@ -1,5 +1,7 @@
-all: sin dynplay urirec basic decklink
+all: sin dynplay urirec basic decklink imagesink_dynplug
 
+imagesink_dynplug: imagesink_dynplug.c
+	gcc imagesink_dynplug.c -o imagesink_dynplug `pkg-config --cflags --libs gstreamer-0.10`
 decklink: decklink.c
 	gcc decklink.c -o decklink `pkg-config --cflags --libs gstreamer-0.10`
 basic: basic.c

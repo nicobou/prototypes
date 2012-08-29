@@ -1114,14 +1114,12 @@ main (int argc,
   GstBus *bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline)); 
   gst_bus_add_watch (bus, bus_call, loop); 
   gst_object_unref (bus); 
-
     
   // delay request 
   g_timeout_add (1000, (GSourceFunc) run_test, NULL);
 
   //request now
   //run_test ();
-
 
   /* Set the pipeline to "playing" state*/
   g_print ("Now playing pipeline\n");
