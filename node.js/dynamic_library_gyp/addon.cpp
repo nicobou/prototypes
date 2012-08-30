@@ -1,30 +1,77 @@
 #define BUILDING_NODE_EXTENSION
 #include <node.h>
+
 #include <switcher/base-entity-manager.h>
 
-using namespace v8;
+static switcher::BaseEntityManager switcher_manager;
 
-Handle<Value> Add(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 2) {
-    ThrowException(Exception::TypeError(String::New("Wrong number of arguments")));
-    return scope.Close(Undefined());
+v8::Handle<v8::Value> Create(const v8::Arguments& args) {
+  v8::HandleScope scope;
+  
+  if (args.Length() < 1) {
+    ThrowException(v8::Exception::TypeError(v8::String::New("Wrong number of arguments")));
+    return scope.Close(v8::Undefined());
   }
 
-  if (!args[0]->IsNumber() || !args[1]->IsNumber()) {
-    ThrowException(Exception::TypeError(String::New("Wrong arguments")));
-    return scope.Close(Undefined());
+  if (!args[0]->IsString() ) {
+    ThrowException(v8::Exception::TypeError(v8::String::New("Wrong arguments")));
+    return scope.Close(v8::Undefined());
   }
+  
+  v8::String::AsciiValue val(args[0]->ToString());
 
-  Local<Number> num = Number::New(args[0]->NumberValue() +
-      args[1]->NumberValue());
-  return scope.Close(num);
+  v8::Local<v8::String> name = v8::String::New(switcher_manager.create(std::string(*val)).c_str());
+  //v8::Local<v8::String> name = v8::String::New("truc");
+  return scope.Close(name);
 }
 
-void Init(Handle<Object> target) {
-  target->Set(String::NewSymbol("add"),
-      FunctionTemplate::New(Add)->GetFunction());
+v8::Handle<v8::Value> Invoke(const v8::Arguments& args) {
+  v8::HandleScope scope;
+  
+  if (args.Length() < 3) {
+    ThrowException(v8::Exception::TypeError(v8::String::New("Wrong number of arguments")));
+    return scope.Close(v8::Undefined());
+  }
+
+  if (!args[0]->IsString() || !args[1]->IsString() || !args[2]->IsArray ()) {
+    ThrowException(v8::Exception::TypeError(v8::String::New("Wrong arguments")));
+    return scope.Close(v8::Undefined());
+  }
+  
+  v8::String::AsciiValue element_name(args[0]->ToString());
+
+  v8::String::AsciiValue function_name(args[1]->ToString());
+
+  v8::Local<v8::Object> obj_arguments = args[2]->ToObject();
+  v8::Local<v8::Array> arguments = obj_arguments->GetPropertyNames();
+
+  std::vector<std::string> vector_arg;
+ 
+  for(unsigned int i = 0; i < arguments->Length(); i++) {
+    v8::String::AsciiValue val(obj_arguments->Get(i)->ToString());
+    vector_arg.push_back(std::string(*val));
+    }
+
+  v8::Handle<v8::Boolean> res = v8::Boolean::New(switcher_manager.invoke(std::string(*element_name),
+									 std::string(*function_name),
+									 vector_arg));
+  return scope.Close(res);
+}
+
+
+
+// ------------ node init functions -------------------------------
+void Init(v8::Handle<v8::Object> target) {
+
+  gst_init (NULL,NULL);
+  GMainLoop *loop = g_main_loop_new (NULL, FALSE);  
+
+  target->Set(v8::String::NewSymbol("create"),
+	      v8::FunctionTemplate::New(Create)->GetFunction());  
+  
+  target->Set(v8::String::NewSymbol("invoke"),
+	      v8::FunctionTemplate::New(Invoke)->GetFunction());  
+  
 }
 
 NODE_MODULE(addon, Init)

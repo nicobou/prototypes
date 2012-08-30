@@ -1,3 +1,8 @@
 var addon = require('./build/Release/addon');
 
-console.log( 'This should be eight:', addon.add(3,5) );
+console.log( 'create runtime:', addon.create("runtime") );
+
+console.log( 'create videotestsource:', addon.create("videotestsource") );
+
+console.log( '',addon.invoke("videotestsrc0", "set_runtime", ["pipeline0"] ));
+
