@@ -2,7 +2,7 @@
   "targets": 
   [
     {
-      "target_name": "addon",
+      "target_name": "switcher_addon",
       "cflags": [ "-I/usr/local/include/switcher-0.1",
                   "-pthread", 
 		  "-I/usr/include/gstreamer-0.10", 
@@ -22,7 +22,7 @@
               "-lglib-2.0"
           ]	   
       },	  
-      "sources": [ "addon.cpp" ]
+      "sources": [ "switcher_addon.cpp" ]
     }
   ]	      
 }

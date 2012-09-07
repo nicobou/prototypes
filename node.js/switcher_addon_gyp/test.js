@@ -1,4 +1,4 @@
-var addon = require('./build/Release/addon');
+var addon = require('./build/Release/switcher_addon');
 
 console.log( 'create runtime returned:', addon.create("runtime") );
 
