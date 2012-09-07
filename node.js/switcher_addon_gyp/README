@@ -1,0 +1,15 @@
+compile:
+-------
+
+node-gyp configure
+node-gyp build
+
+run:
+---
+
+node test.js
+
+clean:
+-----
+
+node-gyp clean
