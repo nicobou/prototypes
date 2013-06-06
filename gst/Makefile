@@ -1,9 +1,11 @@
-all: sin dynplay urirec basic decklink imagesink_dynplug
+all: sin dynplay urirec basic decklink imagesink_dynplug videoshm-audioplay
 
 imagesink_dynplug: imagesink_dynplug.c
 	gcc imagesink_dynplug.c -o imagesink_dynplug `pkg-config --cflags --libs gstreamer-0.10`
 decklink: decklink.c
 	gcc decklink.c -o decklink `pkg-config --cflags --libs gstreamer-0.10`
+videoshm-audioplay: videoshm-audioplay.c
+	gcc videoshm-audioplay.c -o videoshm-audioplay `pkg-config --cflags --libs gstreamer-0.10 shmdata-0.8`
 basic: basic.c
 	gcc basic.c -o basic `pkg-config --cflags --libs gstreamer-0.10`
 sin: sin.c
