@@ -43,6 +43,14 @@ leave(int sig) {
 
 }
 
+gboolean    
+manual_exit (gpointer nothing){   
+  
+  leave (0);
+  return FALSE;   
+}   
+
+
 void
 rec(int sig) {
   g_print ("hehe coucou\n");
@@ -63,31 +71,45 @@ rec(int sig) {
 
    sleep(1);
 
-      piperec = gst_parse_bin_from_description ("mp4mux name=muxrec ! filesink name=filerec location=res.mp4 sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! x264enc ! queue ! muxrec.  queue name=ain ! audioconvert ! lamemp3enc bitrate=320 ! queue ! muxrec.",    
-      						     FALSE, //make ghost pads,    
-      						     NULL);    
+        piperec = gst_parse_bin_from_description ("mp4mux name=muxrec ! filesink name=filerec location=res.mp4 sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! x264enc ! queue ! muxrec.  queue name=ain ! audioconvert ! audioresample ! lamemp3enc bitrate=320 ! queue ! muxrec.",      
+        						     FALSE, //make ghost pads,      
+        						     NULL);      
 
-     /* piperec = gst_parse_bin_from_description ("webmmux name=muxrec ! filesink name=filerec location=res.webm sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! vp8enc ! queue ! muxrec.  queue name=ain ! audioconvert ! audioresample ! vorbisenc ! queue ! muxrec.",    */
-     /* 						     FALSE, //make ghost pads,    */
-     /* 						     NULL);    */
+	//a tester:
+        /* piperec = gst_parse_bin_from_description ("ffmux_ipod name=muxrec ! filesink name=filerec location=res.mp4 sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! x264enc ! queue ! muxrec.  queue name=ain ! audioconvert ! audioresample ! ffenc_aac bitrate=3200000 ! queue ! muxrec.",       */
+        /* 						     FALSE, //make ghost pads,       */
+        /* 						     NULL);       */
 
-   gst_bin_add_many (GST_BIN (pipeline),  
-   		    piperec, 
-   		    NULL);  
+       /* piperec = gst_parse_bin_from_description ("oggmux name=muxrec ! filesink name=filerec location=res.ogv sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! theoraenc speed-level=2 ! queue ! muxrec.  queue name=ain ! audioconvert ! audioresample ! vorbisenc ! queue ! muxrec.",      */
+       /* 						     FALSE, //make ghost pads,      */
+       /* 						     NULL);      */
+
+       //MARCHE PAS :
+      /* piperec = gst_parse_bin_from_description ("webmmux name=muxrec ! filesink name=filerec location=res.webm sync=false  queue name=vin ! deinterlace ! ffmpegcolorspace ! vp8enc ! queue ! muxrec.  queue name=ain ! audioconvert ! audioresample ! vorbisenc ! queue ! muxrec.",     */
+      /* 						     FALSE, //make ghost pads,     */
+      /* 						     NULL);     */
+
+    gst_bin_add_many (GST_BIN (pipeline),   
+    		    piperec,  
+    		    NULL);   
+
+     g_object_set (G_OBJECT (gst_bin_get_by_name (GST_BIN(vdisplay),"win")),  
+     		 "qos", FALSE,   
+     		 NULL);  
   
-   gst_element_link (gst_bin_get_by_name (GST_BIN(adisplay),"atee"),    
-     		    gst_bin_get_by_name (GST_BIN(piperec),"ain"));   
-   gst_element_link (GST_ELEMENT(gst_bin_get_by_name (GST_BIN(vdisplay),"vtee")),    
-		     gst_bin_get_by_name (GST_BIN(piperec),"vin"));   
-   
-  
-
+    gst_element_link (gst_bin_get_by_name (GST_BIN(adisplay),"atee"),     
+      		    gst_bin_get_by_name (GST_BIN(piperec),"ain"));    
+    gst_element_link (GST_ELEMENT(gst_bin_get_by_name (GST_BIN(vdisplay),"vtee")),     
+    		     gst_bin_get_by_name (GST_BIN(piperec),"vin"));    
+ 
 
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
 
   recording = TRUE;
 
-g_print ("hehe fin\n");
+  /* g_print ("HEY CA VA PAS !!! MANUAL_EXIT\n"); */
+  /* g_timeout_add (76.5 * 60.0 *1000, (GSourceFunc) manual_exit, NULL); */
+  g_print ("hehe fin\n");
 }
 
 
@@ -98,11 +120,11 @@ bus_call (GstBus *bus,
 {
   GMainLoop *loop = (GMainLoop *) data;
 
-  GstStructure *descr_struct = NULL;
+  const GstStructure *descr_struct = NULL;
   gchar *descr = NULL;
   descr_struct =  gst_message_get_structure (msg);
   if (descr_struct != NULL)
-    descr = gst_structure_to_string (desr_struct);
+    descr = gst_structure_to_string (descr_struct);
   
     switch (GST_MESSAGE_TYPE (msg)) {
 
@@ -153,13 +175,12 @@ manual_seek (gpointer nothing){
 		     GST_FORMAT_TIME,  
 		     GST_SEEK_FLAG_FLUSH, 
 		     GST_SEEK_TYPE_SET,  
-		     110 * 60.0 * GST_SECOND,  
+		     77 * 60.0 * GST_SECOND,  
 		     GST_SEEK_TYPE_NONE,  
 		     GST_CLOCK_TIME_NONE);  
 
   return FALSE;   
 }   
-
 
 int
 main (int argc,
@@ -185,18 +206,18 @@ main (int argc,
     
 
  
-  vdisplay = gst_parse_bin_from_description ("queue ! tee name=vtee ! queue ! xvimagesink",
+  vdisplay = gst_parse_bin_from_description ("queue ! tee name=vtee ! queue ! xvimagesink name=win ",
 							 TRUE, //make ghost pads,
 							 NULL);
   
-  adisplay = gst_parse_bin_from_description ("queue ! tee name=atee ! queue ! autoaudiosink",
+  adisplay = gst_parse_bin_from_description ("queue ! tee name=atee ! queue ! pulsesink ",
 							     TRUE, //make ghost pads,
 							     NULL);
   /* GstElement *tdisplay = gst_parse_bin_from_description ("identity", */
   /* 							 TRUE, //make ghost pads, */
   /* 							 NULL); */
   
-  playbin2 = gst_element_factory_make ("playbin2",NULL);  
+   playbin2 = gst_element_factory_make ("playbin2",NULL);  
   g_object_set (G_OBJECT (playbin2), 
 		"uri",argv[1], 
 		"video-sink", vdisplay,
@@ -215,7 +236,7 @@ main (int argc,
   gst_bus_add_watch (bus, bus_call, loop); 
   gst_object_unref (bus); 
 
-  g_timeout_add (30000, (GSourceFunc) manual_seek, NULL);
+  //g_timeout_add (30000, (GSourceFunc) manual_seek, NULL);
   /* Set the pipeline to "playing" state*/
   g_print ("Now playing pipeline\n");
   gst_element_set_state (pipeline, GST_STATE_PLAYING);
