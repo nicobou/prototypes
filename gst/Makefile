@@ -17,5 +17,8 @@ dynplay: dynplay.c
 urirec: urirec.c
 	gcc urirec.c -o urirec `pkg-config --cflags --libs gstreamer-0.10`
 
+rtp_codec: rtp-codec.c
+	gcc rtp-codec.c -o rtp-codec -std=gnu99 `pkg-config --cflags --libs gstreamer-0.10`
+
 clean:
 	rm sin dynplay urirec basic decklink
