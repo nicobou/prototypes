@@ -38,7 +38,6 @@ main (int argc,
 		    g_print ("string: %s\n",   
 			     gst_structure_to_string (caps_struct));   
 		    
-
 		    {//payload 
 		      const GValue *val = gst_structure_get_value (caps_struct, "payload");  
 		      if (NULL != val) 
@@ -82,6 +81,50 @@ main (int argc,
 				      
 			}
 		    } 
+		    {//media
+		      const GValue *val = gst_structure_get_value (caps_struct, "media");  
+		      if (NULL != val) 
+			{
+			  if (GST_VALUE_HOLDS_LIST(val)) 
+			    { 
+			      for (guint i = 0; i < gst_value_list_get_size (val); i++) 
+				{ 
+				  const GValue *item_val = gst_value_list_get_value (val, i); 
+				  g_print ("media list %s\n", g_value_get_string (item_val)); 
+				} 
+			    } 
+			  if (G_VALUE_HOLDS_STRING (val)) 
+			    { 
+			      g_print ("media string %s\n", g_value_get_string (val)); 
+			    } 
+				      
+			}
+		    } 
+
+		    {//clock rate 
+		      const GValue *val = gst_structure_get_value (caps_struct, "clock-rate");  
+		      if (NULL != val) 
+			{ 
+			  //g_print ("payload struct type %s\n", G_VALUE_TYPE_NAME (val));  
+			  if(GST_VALUE_HOLDS_INT_RANGE(val)) 
+			    { 
+			      g_print ("clock-rate min %d\n", gst_value_get_int_range_min (val));  
+			    } 
+			  if (GST_VALUE_HOLDS_LIST(val)) 
+			    { 
+			      for (guint i = 0; i < gst_value_list_get_size (val); i++) 
+				{ 
+				  const GValue *item_val = gst_value_list_get_value (val, i); 
+				  g_print ("clock-rate list %d\n", g_value_get_int (item_val)); 
+				} 
+			    } 
+			  if (G_VALUE_HOLDS_INT (val)) 
+			    { 
+			      g_print ("clock-rate int %d\n", g_value_get_int (val)); 
+			    } 
+			} 
+		    } 
+
 		    /* g_print ("\nencoding-name %s\n",   */
 		    /* 	 gst_structure_get_string (caps_struct,  */
 		    /* 				   "encoding-name"));  */
