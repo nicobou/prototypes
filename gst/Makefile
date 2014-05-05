@@ -1,13 +1,17 @@
-all: sin dynplay urirec basic decklink imagesink_dynplug videoshm-audioplay
+all: sin dynplay urirec basic decklink imagesink_dynplug rtp_codec
 
 imagesink_dynplug: imagesink_dynplug.c
 	gcc imagesink_dynplug.c -o imagesink_dynplug `pkg-config --cflags --libs gstreamer-0.10`
+
 decklink: decklink.c
 	gcc decklink.c -o decklink `pkg-config --cflags --libs gstreamer-0.10`
+
 videoshm-audioplay: videoshm-audioplay.c
 	gcc videoshm-audioplay.c -o videoshm-audioplay `pkg-config --cflags --libs gstreamer-0.10 shmdata-0.8`
+
 basic: basic.c
 	gcc basic.c -o basic `pkg-config --cflags --libs gstreamer-0.10`
+
 sin: sin.c
 	gcc sin.c -o sin `pkg-config --cflags --libs gstreamer-0.10`
 
@@ -21,4 +25,4 @@ rtp_codec: rtp-codec.c
 	gcc rtp-codec.c -o rtp-codec -std=gnu99 `pkg-config --cflags --libs gstreamer-0.10`
 
 clean:
-	rm sin dynplay urirec basic decklink
+	rm sin dynplay urirec basic decklink imagesink_dynplug rtp-codec

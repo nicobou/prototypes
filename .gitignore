@@ -6,6 +6,7 @@ gst/basic
 gst/decklink
 gst/dynplay
 gst/imagesink_dynplug
+gst/rtp-codec
 gst/sin
 gstoscctrl-0.10.0/Makefile.in
 gstoscctrl-0.10.0/aclocal.m4
