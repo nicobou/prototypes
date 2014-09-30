@@ -13,8 +13,8 @@ struct A {
   }
     
 
-  //template<typename R>
-  static int make_static(std::function<int(A *,int)> fun, A *a, int i) {
+  template<typename R>
+  static R make_static(std::function<R(A *,int)> fun, A *a, int i) {
     auto func = std::bind(fun, a, i);
     return func();
   }
@@ -23,13 +23,11 @@ struct A {
 int main() {
   A a;
   a.identity_const(1);
-  //auto truc = std::bind (&A::identity, a, 9);
 
-  std::function<int(A*,int)> f = &A::identity_const;
-  int res = A::make_static(f, &a, 4);
+  { std::function<int(A*,int)> f = &A::identity_const;
+    auto res = A::make_static<int>(f, &a, 4); }
 
-  int res2 = A::make_static(&A::identity_const, &a, 8);
+  { auto res = A::make_static<int>(&A::identity_const, &a, 8); }
 
   
-  // std::cout << res << std::endl; 
 }
