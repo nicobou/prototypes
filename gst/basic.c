@@ -88,7 +88,8 @@ main (int argc,
     /* Iterate */
     g_print ("Running...\n");
     g_main_loop_run (loop);
-
+    g_main_loop_unref (loop);
+   
     /* Out of the main loop, clean up nicely */
     g_print ("Returned, stopping playback\n");
     gst_element_set_state (pipeline, GST_STATE_NULL);
